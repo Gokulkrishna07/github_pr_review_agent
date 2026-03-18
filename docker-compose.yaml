@@ -21,7 +21,7 @@ services:
       ollama:
         condition: service_healthy
     entrypoint: >
-      sh -c "curl -s http://ollama:11434/api/pull -d '{\"name\": \"qwen2.5-coder:7b\"}' && echo 'Model pulled successfully'"
+      sh -c "curl -s http://ollama:11434/api/pull -d '{\"name\": \"qwen2.5-coder:0.5b\"}' && echo 'Model pulled successfully'"
     restart: "no"
 
   agent:
