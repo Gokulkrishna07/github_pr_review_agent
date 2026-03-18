@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-config
+  namespace: ai-reviewer
+data:
+  OLLAMA_BASE_URL: "http://ollama.ai-reviewer.svc.cluster.local:11434"
+  OLLAMA_MODEL: "qwen2.5-coder:7b"
+  LOG_LEVEL: "INFO"
+  MAX_DIFF_LINES: "500"
+  OLLAMA_TIMEOUT: "120"

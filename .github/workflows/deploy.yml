@@ -1,0 +1,40 @@
+name: Deploy to VM
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VM_HOST }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          username: ${{ secrets.VM_SSH_USER }}
+          port: ${{ secrets.VM_SSH_PORT }}
+          script: |
+            set -e
+
+            cd ~/Code_review_agent
+            git pull origin main
+
+            # Build agent image
+            docker build -t review-agent:latest ./agent
+
+            # Import into k3s containerd
+            docker save review-agent:latest | sudo k3s ctr images import -
+
+            # Apply k8s manifests (excluding secret)
+            sudo kubectl apply -f k8s/namespace.yaml
+            sudo kubectl apply -f k8s/ollama-pv.yaml
+            sudo kubectl apply -f k8s/ollama-deployment.yaml
+            sudo kubectl apply -f k8s/agent-configmap.yaml
+            sudo kubectl apply -f k8s/agent-deployment.yaml
+            sudo kubectl apply -f k8s/ingress.yaml
+
+            # Restart agent to pick up new image
+            sudo kubectl rollout restart deployment/review-agent -n ai-reviewer
+            sudo kubectl rollout status deployment/review-agent -n ai-reviewer --timeout=120s

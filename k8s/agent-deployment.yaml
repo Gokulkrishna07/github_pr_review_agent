@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: review-agent
+  namespace: ai-reviewer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: review-agent
+  template:
+    metadata:
+      labels:
+        app: review-agent
+    spec:
+      containers:
+        - name: agent
+          image: review-agent:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: agent-config
+            - secretRef:
+                name: agent-secret
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 250m
+            limits:
+              memory: 256Mi
+              cpu: 500m
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: review-agent
+  namespace: ai-reviewer
+spec:
+  selector:
+    app: review-agent
+  ports:
+    - port: 90
+      targetPort: 9000
