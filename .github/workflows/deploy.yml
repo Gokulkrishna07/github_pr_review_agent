@@ -18,6 +18,10 @@ jobs:
           script: |
             set -e
 
+            # Clone if first deploy, otherwise pull
+            if [ ! -d ~/Code_review_agent ]; then
+              git clone https://github.com/Gokulkrishna07/github_pr_review_agent.git ~/Code_review_agent
+            fi
             cd ~/Code_review_agent
             git pull origin main
 
