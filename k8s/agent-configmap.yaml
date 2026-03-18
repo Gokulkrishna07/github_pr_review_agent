@@ -4,8 +4,7 @@ metadata:
   name: agent-config
   namespace: ai-reviewer
 data:
-  OLLAMA_BASE_URL: "http://ollama.ai-reviewer.svc.cluster.local:11434"
-  OLLAMA_MODEL: "qwen2.5-coder:0.5b"
+  GROQ_MODEL: "llama-3.1-8b-instant"
   LOG_LEVEL: "INFO"
   MAX_DIFF_LINES: "500"
-  OLLAMA_TIMEOUT: "120"
+  GROQ_TIMEOUT: "60"

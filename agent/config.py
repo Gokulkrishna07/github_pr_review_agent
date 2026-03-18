@@ -2,11 +2,11 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    github_token: str
-    github_webhook_secret: str
-    ollama_base_url: str = "http://ollama:11434"
-    ollama_model: str = "qwen2.5-coder:0.5b"
-    ollama_timeout: int = 120
+    gh_token: str
+    gh_webhook_secret: str
+    groq_api_key: str
+    groq_model: str = "llama-3.1-8b-instant"
+    groq_timeout: int = 60
     log_level: str = "INFO"
     max_diff_lines: int = 500
 
