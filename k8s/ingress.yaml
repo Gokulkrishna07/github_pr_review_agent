@@ -15,4 +15,4 @@ spec:
               service:
                 name: review-agent
                 port:
-                  number: 90
+                  number: 80

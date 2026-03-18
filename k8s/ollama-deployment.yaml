@@ -15,24 +15,6 @@ spec:
       labels:
         app: ollama
     spec:
-      initContainers:
-        - name: pull-model
-          image: ollama/ollama:latest
-          command:
-            - sh
-            - -c
-            - |
-              ollama serve &
-              sleep 5
-              ollama pull qwen2.5-coder:7b
-              kill %1
-          volumeMounts:
-            - name: ollama-storage
-              mountPath: /root/.ollama
-          resources:
-            limits:
-              memory: 7Gi
-              cpu: "4"
       containers:
         - name: ollama
           image: ollama/ollama:latest

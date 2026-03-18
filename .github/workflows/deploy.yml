@@ -35,6 +35,15 @@ jobs:
             sudo kubectl apply -f k8s/namespace.yaml
             sudo kubectl apply -f k8s/ollama-pv.yaml
             sudo kubectl apply -f k8s/ollama-deployment.yaml
+
+            # Wait for Ollama to be ready before deploying agent
+            sudo kubectl rollout status deployment/ollama -n ai-reviewer --timeout=300s
+
+            # Pull model into Ollama (idempotent - skips if already present)
+            OLLAMA_POD=$(sudo kubectl get pod -n ai-reviewer -l app=ollama -o jsonpath='{.items[0].metadata.name}')
+            sudo kubectl exec -n ai-reviewer "$OLLAMA_POD" -- ollama pull qwen2.5-coder:7b
+
+            # Deploy agent
             sudo kubectl apply -f k8s/agent-configmap.yaml
             sudo kubectl apply -f k8s/agent-deployment.yaml
             sudo kubectl apply -f k8s/ingress.yaml
