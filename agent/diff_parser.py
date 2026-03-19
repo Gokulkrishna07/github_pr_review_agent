@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 SKIP_EXTENSIONS = {
     ".lock", ".sum", ".mod", ".min.js", ".min.css",
