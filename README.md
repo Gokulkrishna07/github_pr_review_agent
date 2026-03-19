@@ -2,6 +2,8 @@
 
 AI-powered code review agent that automatically reviews pull requests using the Groq API (llama-3.1-8b-instant).
 
+> **Status**: Active — deployed on k3s, triggered via GitHub webhooks.
+
 ## Architecture
 
 ```
