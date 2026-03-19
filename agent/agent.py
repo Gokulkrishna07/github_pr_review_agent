@@ -163,7 +163,9 @@ def _build_review_body(
     all_nit: list[str] = []
 
     for filename, review in file_reviews:
-        all_good.extend(review.get("whats_good", []))
+        for item in review.get("whats_good", []):
+            if item not in all_good:
+                all_good.append(item)
         for item in review.get("critical", []):
             all_critical.append(f"{item['issue']} `[{filename} {item.get('location', '')}]`")
         for item in review.get("major", []):
