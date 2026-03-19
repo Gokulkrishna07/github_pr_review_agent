@@ -16,6 +16,9 @@ class RateLimiter:
             now = time.monotonic()
             self._calls = [t for t in self._calls if now - t < self._period]
             if len(self._calls) >= self._max_calls:
-                wait = self._period - (now - self._calls[0])
+                oldest = self._calls[0]
+                wait = self._period - (now - oldest)
                 await asyncio.sleep(wait)
+                now = time.monotonic()
+                self._calls = [t for t in self._calls if now - t < self._period]
             self._calls.append(time.monotonic())
