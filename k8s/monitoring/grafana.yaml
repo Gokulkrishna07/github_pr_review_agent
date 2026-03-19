@@ -1,0 +1,304 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: ai-reviewer
+data:
+  datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus
+        url: http://prometheus.ai-reviewer.svc.cluster.local:9090
+        access: proxy
+        isDefault: true
+        editable: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: ai-reviewer
+data:
+  provider.yaml: |
+    apiVersion: 1
+    providers:
+      - name: default
+        type: file
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: ai-reviewer
+data:
+  pr-review-agent.json: |
+    {
+      "uid": "pr-review-agent",
+      "title": "PR Review Agent",
+      "tags": ["pr-review-agent"],
+      "timezone": "browser",
+      "schemaVersion": 38,
+      "refresh": "30s",
+      "panels": [
+        {
+          "type": "row", "id": 1, "title": "Overview",
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0}, "collapsed": false
+        },
+        {
+          "type": "stat", "id": 2, "title": "Total Reviews",
+          "gridPos": {"h": 4, "w": 4, "x": 0, "y": 1},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum(pr_reviews_total) or vector(0)", "instant": true, "refId": "A"}],
+          "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "blue", "value": null}]}}}
+        },
+        {
+          "type": "stat", "id": 3, "title": "Success Rate",
+          "gridPos": {"h": 4, "w": 4, "x": 4, "y": 1},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum(pr_reviews_total{status=\"success\"}) / sum(pr_reviews_total) * 100 or vector(0)", "instant": true, "refId": "A"}],
+          "options": {"colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 80}, {"color": "green", "value": 95}]}}}
+        },
+        {
+          "type": "stat", "id": 4, "title": "Active Reviews",
+          "gridPos": {"h": 4, "w": 4, "x": 8, "y": 1},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "active_reviews or vector(0)", "instant": true, "refId": "A"}],
+          "options": {"colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 2}, {"color": "red", "value": 3}]}}}
+        },
+        {
+          "type": "stat", "id": 5, "title": "Avg Review Duration",
+          "gridPos": {"h": 4, "w": 4, "x": 12, "y": 1},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "rate(pr_review_duration_seconds_sum[1h]) / rate(pr_review_duration_seconds_count[1h]) or vector(0)", "instant": true, "refId": "A"}],
+          "options": {"colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "s", "decimals": 2}}
+        },
+        {
+          "type": "stat", "id": 6, "title": "Groq Error Rate",
+          "gridPos": {"h": 4, "w": 4, "x": 16, "y": 1},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum(groq_requests_total{status=\"error\"}) / sum(groq_requests_total) * 100 or vector(0)", "instant": true, "refId": "A"}],
+          "options": {"colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 5}, {"color": "red", "value": 10}]}}}
+        },
+        {
+          "type": "stat", "id": 7, "title": "Agent Memory",
+          "gridPos": {"h": 4, "w": 4, "x": 20, "y": 1},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "process_resident_memory_bytes or vector(0)", "instant": true, "refId": "A"}],
+          "options": {"colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "bytes"}}
+        },
+        {
+          "type": "row", "id": 8, "title": "PR Reviews",
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5}, "collapsed": false
+        },
+        {
+          "type": "timeseries", "id": 9, "title": "Review Rate by Status",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "rate(pr_reviews_total{status=\"success\"}[5m])", "legendFormat": "success", "refId": "A"},
+            {"expr": "rate(pr_reviews_total{status=\"failed\"}[5m])", "legendFormat": "failed", "refId": "B"},
+            {"expr": "rate(pr_reviews_total{status=\"duplicate\"}[5m])", "legendFormat": "duplicate", "refId": "C"},
+            {"expr": "rate(pr_reviews_total{status=\"skipped\"}[5m])", "legendFormat": "skipped", "refId": "D"}
+          ],
+          "fieldConfig": {"defaults": {"custom": {"lineWidth": 2}}},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["sum"]}}
+        },
+        {
+          "type": "timeseries", "id": 10, "title": "Review Duration Percentiles",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "histogram_quantile(0.50, rate(pr_review_duration_seconds_bucket[5m]))", "legendFormat": "p50", "refId": "A"},
+            {"expr": "histogram_quantile(0.95, rate(pr_review_duration_seconds_bucket[5m]))", "legendFormat": "p95", "refId": "B"},
+            {"expr": "histogram_quantile(0.99, rate(pr_review_duration_seconds_bucket[5m]))", "legendFormat": "p99", "refId": "C"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"lineWidth": 2}}},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}}
+        },
+        {
+          "type": "row", "id": 11, "title": "Groq API",
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14}, "collapsed": false
+        },
+        {
+          "type": "timeseries", "id": 12, "title": "Groq Request Rate",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 15},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "rate(groq_requests_total{status=\"success\"}[5m])", "legendFormat": "success", "refId": "A"},
+            {"expr": "rate(groq_requests_total{status=\"error\"}[5m])", "legendFormat": "error", "refId": "B"}
+          ],
+          "fieldConfig": {"defaults": {"custom": {"lineWidth": 2}}},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["sum"]}}
+        },
+        {
+          "type": "stat", "id": 13, "title": "Total Groq Calls",
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 15},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum(groq_requests_total) or vector(0)", "instant": true, "refId": "A"}],
+          "options": {"colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"thresholds": {"steps": [{"color": "blue", "value": null}]}}}
+        },
+        {
+          "type": "stat", "id": 14, "title": "Groq Errors Total",
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 15},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum(groq_requests_total{status=\"error\"}) or vector(0)", "instant": true, "refId": "A"}],
+          "options": {"colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}}
+        },
+        {
+          "type": "stat", "id": 20, "title": "Groq Success Total",
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 19},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum(groq_requests_total{status=\"success\"}) or vector(0)", "instant": true, "refId": "A"}],
+          "options": {"colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"thresholds": {"steps": [{"color": "green", "value": null}]}}}
+        },
+        {
+          "type": "row", "id": 15, "title": "Agent Health",
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 23}, "collapsed": false
+        },
+        {
+          "type": "timeseries", "id": 16, "title": "CPU Usage",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "rate(process_cpu_seconds_total[1m])", "legendFormat": "CPU seconds/s", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2}}}
+        },
+        {
+          "type": "timeseries", "id": 17, "title": "Memory Usage",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "process_resident_memory_bytes", "legendFormat": "RSS (resident)", "refId": "A"},
+            {"expr": "process_virtual_memory_bytes", "legendFormat": "Virtual", "refId": "B"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"lineWidth": 2}}}
+        },
+        {
+          "type": "timeseries", "id": 18, "title": "Open File Descriptors",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "process_open_fds", "legendFormat": "open fds", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"custom": {"lineWidth": 2}}}
+        },
+        {
+          "type": "timeseries", "id": 19, "title": "Python GC Collections",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "rate(python_gc_collections_total[5m])", "legendFormat": "gen {{generation}}", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"custom": {"lineWidth": 2}}}
+        }
+      ],
+      "version": 1
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: ai-reviewer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      tolerations:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "CriticalAddonsOnly"
+          operator: "Exists"
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.2.0
+          ports:
+            - containerPort: 3000
+          env:
+            - name: GF_SERVER_ROOT_URL
+              value: "http://%(domain)s/grafana/"
+            - name: GF_SERVER_SERVE_FROM_SUB_PATH
+              value: "true"
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: "admin"
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            - name: GF_ANALYTICS_REPORTING_ENABLED
+              value: "false"
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+            - name: data
+              mountPath: /var/lib/grafana
+          resources:
+            requests:
+              memory: 64Mi
+              cpu: 100m
+            limits:
+              memory: 128Mi
+              cpu: 200m
+          readinessProbe:
+            httpGet:
+              path: /grafana/api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /grafana/api/health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboard-provider
+        - name: dashboards
+          configMap:
+            name: grafana-dashboards
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: ai-reviewer
+spec:
+  selector:
+    app: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000

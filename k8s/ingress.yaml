@@ -16,3 +16,10 @@ spec:
                 name: review-agent
                 port:
                   number: 80
+          - path: /grafana
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  number: 3000

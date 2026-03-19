@@ -44,6 +44,8 @@ jobs:
             sudo kubectl apply -f k8s/namespace.yaml
             sudo kubectl apply -f k8s/agent-configmap.yaml
             sudo kubectl apply -f k8s/agent-deployment.yaml
+            sudo kubectl apply -f k8s/monitoring/prometheus.yaml
+            sudo kubectl apply -f k8s/monitoring/grafana.yaml
             sudo kubectl apply -f k8s/ingress.yaml
 
             # Restart agent to pick up new image
