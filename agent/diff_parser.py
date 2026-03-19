@@ -6,6 +6,8 @@ SKIP_EXTENSIONS = {
     ".woff", ".woff2", ".ttf", ".eot", ".pdf",
 }
 
+SKIP_SUFFIXES = {"-lock.json"}  # e.g. package-lock.json
+
 
 @dataclass
 class FileDiff:
@@ -32,8 +34,10 @@ def parse_pr_files(files: list[dict], max_diff_lines: int) -> list[FileDiff]:
         if not patch:
             continue
 
-        # Skip by extension
+        # Skip by extension or known lock file suffix
         if any(filename.endswith(ext) for ext in SKIP_EXTENSIONS):
+            continue
+        if any(filename.endswith(s) for s in SKIP_SUFFIXES):
             continue
 
         line_count = patch.count("\n") + 1
