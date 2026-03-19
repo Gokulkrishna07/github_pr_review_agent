@@ -4,10 +4,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+import base64
+
 from agent.github_client import (
     PAGE_SIZE,
     _headers,
     _request_with_retry,
+    get_file_content,
     get_pr_details,
     get_pr_files,
     post_pr_comment,
@@ -21,6 +24,59 @@ def _fake_response(status_code: int, body: dict | list) -> MagicMock:
     resp.json.return_value = body
     resp.raise_for_status = MagicMock()
     return resp
+
+
+class TestGetFileContent:
+    async def test_returns_decoded_file_content(self):
+        content = "def hello():\n    return 42\n"
+        encoded = base64.b64encode(content.encode()).decode()
+        api_body = {"encoding": "base64", "content": encoded}
+        fake_resp = _fake_response(200, api_body)
+
+        with patch("httpx.AsyncClient.request", new_callable=AsyncMock, return_value=fake_resp):
+            result = await get_file_content("owner", "repo", "hello.py", "abc123", "token")
+
+        assert result == content
+
+    async def test_returns_none_on_non_200_status(self):
+        fake_resp = _fake_response(404, {})
+
+        with patch("httpx.AsyncClient.request", new_callable=AsyncMock, return_value=fake_resp):
+            result = await get_file_content("owner", "repo", "missing.py", "abc123", "token")
+
+        assert result is None
+
+    async def test_returns_none_when_encoding_not_base64(self):
+        api_body = {"encoding": "utf-8", "content": "some content"}
+        fake_resp = _fake_response(200, api_body)
+
+        with patch("httpx.AsyncClient.request", new_callable=AsyncMock, return_value=fake_resp):
+            result = await get_file_content("owner", "repo", "file.py", "abc123", "token")
+
+        assert result is None
+
+    async def test_returns_none_when_content_missing(self):
+        api_body = {"encoding": "base64", "content": ""}
+        fake_resp = _fake_response(200, api_body)
+
+        with patch("httpx.AsyncClient.request", new_callable=AsyncMock, return_value=fake_resp):
+            result = await get_file_content("owner", "repo", "file.py", "abc123", "token")
+
+        assert result is None
+
+    async def test_passes_commit_sha_as_ref_param(self):
+        content = "x = 1\n"
+        encoded = base64.b64encode(content.encode()).decode()
+        api_body = {"encoding": "base64", "content": encoded}
+        fake_resp = _fake_response(200, api_body)
+
+        with patch(
+            "httpx.AsyncClient.request", new_callable=AsyncMock, return_value=fake_resp
+        ) as mock_req:
+            await get_file_content("owner", "repo", "x.py", "deadbeef", "token")
+
+        call_kwargs = mock_req.call_args
+        assert call_kwargs[1]["params"] == {"ref": "deadbeef"}
 
 
 class TestHeaders:
