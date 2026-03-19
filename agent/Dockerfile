@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12.9-slim
 
 RUN groupadd -r app && useradd -r -g app -d /app app
 
