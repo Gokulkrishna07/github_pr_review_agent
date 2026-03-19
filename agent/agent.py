@@ -104,6 +104,7 @@ async def process_review(
                 review_comments.append({
                     "path": filename,
                     "line": c["line"],
+                    "side": "RIGHT",
                     "body": f"{severity_prefix} **{c['severity'].upper()}**: {c['comment']}",
                 })
 
