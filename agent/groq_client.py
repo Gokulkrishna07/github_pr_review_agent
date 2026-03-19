@@ -48,6 +48,13 @@ Changes made in this PR:
 """
 
 
+def _sanitize_input(text: str, max_len: int) -> str:
+    """Truncate text to max_len and strip triple backticks to prevent prompt injection."""
+    text = text[:max_len]
+    text = text.replace("```", "")
+    return text
+
+
 async def review_diff(
     filename: str,
     patch: str,
@@ -60,6 +67,8 @@ async def review_diff(
     file_content: str | None = None,
 ) -> dict:
     """Send a diff to Groq for review, return categorized review dict."""
+    pr_title = _sanitize_input(pr_title, 200)
+    pr_description = _sanitize_input(pr_description, 2000)
     description_section = f"PR description: {pr_description}" if pr_description.strip() else ""
     file_content_section = _build_file_content_section(file_content)
     prompt = REVIEW_PROMPT.format(

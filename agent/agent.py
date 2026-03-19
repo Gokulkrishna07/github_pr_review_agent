@@ -40,6 +40,10 @@ app = FastAPI(title="PR Review Agent")
 
 _semaphore = asyncio.Semaphore(3)
 
+_ip_request_times: dict[str, list[float]] = {}
+_RATE_LIMIT_MAX_REQUESTS = 60
+_RATE_LIMIT_WINDOW_SECONDS = 60
+
 
 @app.get("/health")
 async def health():
@@ -67,6 +71,16 @@ async def webhook(
         client_ip = request.client.host if request.client else "unknown"
         logger.warning("Invalid signature from %s", client_ip)
         return Response(status_code=401, content="Invalid signature")
+
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    window_start = now - _RATE_LIMIT_WINDOW_SECONDS
+    times = _ip_request_times.get(client_ip, [])
+    times = [t for t in times if t > window_start]
+    if len(times) >= _RATE_LIMIT_MAX_REQUESTS:
+        return Response(status_code=429, content="Too many requests")
+    times.append(now)
+    _ip_request_times[client_ip] = times
 
     if x_github_event != "pull_request":
         return {"status": "ignored", "reason": f"event={x_github_event}"}
