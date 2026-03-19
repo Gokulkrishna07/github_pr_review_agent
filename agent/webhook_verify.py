@@ -6,6 +6,8 @@ def verify_signature(payload: bytes, signature: str, secret: str) -> bool:
     """Verify GitHub webhook HMAC SHA-256 signature."""
     if payload is None or signature is None or secret is None:
         return False
+    if not secret or not signature:
+        return False
     if not signature.startswith("sha256="):
         return False
     expected = hmac.new(
