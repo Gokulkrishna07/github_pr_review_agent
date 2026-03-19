@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import logging
 
 import httpx
@@ -51,6 +52,24 @@ async def get_pr_files(
                 break
             page += 1
     return files
+
+
+async def get_file_content(
+    owner: str, repo: str, path: str, commit_sha: str, token: str
+) -> str | None:
+    """Fetch full file content at a specific commit. Returns None if unavailable."""
+    url = f"{BASE}/repos/{owner}/{repo}/contents/{path}"
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await _request_with_retry(
+            client, "GET", url, token=token, params={"ref": commit_sha}
+        )
+        if resp.status_code != 200:
+            logger.warning("Could not fetch content for %s (status %d)", path, resp.status_code)
+            return None
+        data = resp.json()
+        if data.get("encoding") != "base64" or not data.get("content"):
+            return None
+        return base64.b64decode(data["content"]).decode("utf-8", errors="replace")
 
 
 async def post_pr_comment(

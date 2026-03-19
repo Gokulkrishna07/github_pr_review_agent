@@ -8,7 +8,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from .config import settings
 from .diff_parser import parse_pr_files
-from .github_client import get_pr_details, get_pr_files, post_pr_comment
+from .github_client import get_file_content, get_pr_details, get_pr_files, post_pr_comment
 from .groq_client import review_diff
 from .idempotency import is_already_reviewed, mark_as_reviewed
 from .metrics import active_reviews, pr_review_duration_seconds, pr_reviews_total
@@ -111,6 +111,9 @@ async def process_review(
 
         async def review_one(diff):
             async with _semaphore:
+                file_content = await get_file_content(
+                    owner, repo, diff.filename, commit_sha, settings.gh_token
+                )
                 return diff.filename, await review_diff(
                     diff.filename,
                     diff.patch,
@@ -119,6 +122,7 @@ async def process_review(
                     api_key=settings.groq_api_key,
                     model=settings.groq_model,
                     timeout=settings.groq_timeout,
+                    file_content=file_content,
                 )
 
         results = await asyncio.gather(*(review_one(d) for d in diffs), return_exceptions=True)

@@ -8,8 +8,10 @@ from .metrics import groq_requests_total
 
 logger = logging.getLogger(__name__)
 
+FULL_FILE_MAX_LINES = 500  # files larger than this get diff-only review
+
 REVIEW_PROMPT = """\
-You are a senior code reviewer. Analyze the following diff and return a JSON object with categorized review feedback.
+You are a senior code reviewer. Analyze the following changes and return a JSON object with categorized review feedback.
 
 Return this exact structure:
 {{
@@ -29,6 +31,7 @@ Severity guide:
 
 Rules:
 - "location" must reference the line number visible in the diff
+- Only flag issues clearly present in the code shown — do not assume things are missing if they are not visible
 - Use empty array [] for categories with nothing to report
 - Return ONLY valid JSON, no other text
 
@@ -36,6 +39,8 @@ PR context: {pr_title}
 {pr_description}
 
 File: {filename}
+{file_content_section}
+Changes made in this PR:
 ```diff
 {patch}
 ```
@@ -51,14 +56,17 @@ async def review_diff(
     api_key: str,
     model: str,
     timeout: int,
+    file_content: str | None = None,
 ) -> dict:
     """Send a diff to Groq for review, return categorized review dict."""
     description_section = f"PR description: {pr_description}" if pr_description.strip() else ""
+    file_content_section = _build_file_content_section(file_content)
     prompt = REVIEW_PROMPT.format(
         filename=filename,
         patch=patch,
         pr_title=pr_title,
         pr_description=description_section,
+        file_content_section=file_content_section,
     )
 
     client = AsyncGroq(api_key=api_key, timeout=timeout)
@@ -76,6 +84,16 @@ async def review_diff(
 
     text = chat_completion.choices[0].message.content or ""
     return _parse_response(text)
+
+
+def _build_file_content_section(file_content: str | None) -> str:
+    """Return the full file content block for the prompt, or empty string if unavailable/too large."""
+    if not file_content:
+        return ""
+    line_count = file_content.count("\n") + 1
+    if line_count > FULL_FILE_MAX_LINES:
+        return ""
+    return f"Full file content for context:\n```\n{file_content}\n```\n"
 
 
 def _parse_response(text: str) -> dict:

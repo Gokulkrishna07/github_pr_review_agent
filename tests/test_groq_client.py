@@ -4,12 +4,39 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from agent.groq_client import (
+    FULL_FILE_MAX_LINES,
+    _build_file_content_section,
     _empty_review,
     _extract_candidates,
     _parse_response,
     _validate_review,
     review_diff,
 )
+
+
+class TestBuildFileContentSection:
+    def test_small_file_returns_content_block(self):
+        content = "def foo():\n    return 1\n"
+        result = _build_file_content_section(content)
+        assert "Full file content for context:" in result
+        assert "def foo():" in result
+        assert "```" in result
+
+    def test_none_returns_empty_string(self):
+        assert _build_file_content_section(None) == ""
+
+    def test_empty_string_returns_empty_string(self):
+        assert _build_file_content_section("") == ""
+
+    def test_file_over_limit_returns_empty_string(self):
+        large_content = "\n".join(f"line {i}" for i in range(FULL_FILE_MAX_LINES + 1))
+        assert _build_file_content_section(large_content) == ""
+
+    def test_file_at_exact_limit_returns_content_block(self):
+        content = "\n".join(f"line {i}" for i in range(FULL_FILE_MAX_LINES))
+        result = _build_file_content_section(content)
+        assert result != ""
+        assert "Full file content for context:" in result
 
 
 class TestExtractCandidates:
@@ -246,3 +273,55 @@ class TestReviewDiff:
         prompt_used = call_kwargs[1]["messages"][0]["content"]
         # The description_section should be empty string when pr_description is blank
         assert "PR description:" not in prompt_used
+
+    async def test_file_content_included_in_prompt_when_provided(self, mocker):
+        response_data = {"whats_good": [], "critical": [], "major": [], "minor": [], "nit": []}
+        mock_completion = self._make_mock_completion(json.dumps(response_data))
+
+        mock_create = AsyncMock(return_value=mock_completion)
+        mock_client_instance = MagicMock()
+        mock_client_instance.chat.completions.create = mock_create
+
+        mocker.patch("agent.groq_client.groq_requests_total")
+
+        file_content = "def existing_function():\n    return True\n"
+        with patch("agent.groq_client.AsyncGroq", return_value=mock_client_instance):
+            await review_diff(
+                "main.py",
+                "+ def new_function(): pass",
+                pr_title="Title",
+                pr_description="",
+                api_key="key",
+                model="model",
+                timeout=10,
+                file_content=file_content,
+            )
+
+        prompt_used = mock_create.call_args[1]["messages"][0]["content"]
+        assert "Full file content for context:" in prompt_used
+        assert "def existing_function():" in prompt_used
+
+    async def test_no_file_content_prompt_has_no_full_file_section(self, mocker):
+        response_data = {"whats_good": [], "critical": [], "major": [], "minor": [], "nit": []}
+        mock_completion = self._make_mock_completion(json.dumps(response_data))
+
+        mock_create = AsyncMock(return_value=mock_completion)
+        mock_client_instance = MagicMock()
+        mock_client_instance.chat.completions.create = mock_create
+
+        mocker.patch("agent.groq_client.groq_requests_total")
+
+        with patch("agent.groq_client.AsyncGroq", return_value=mock_client_instance):
+            await review_diff(
+                "main.py",
+                "+ line",
+                pr_title="Title",
+                pr_description="",
+                api_key="key",
+                model="model",
+                timeout=10,
+                file_content=None,
+            )
+
+        prompt_used = mock_create.call_args[1]["messages"][0]["content"]
+        assert "Full file content for context:" not in prompt_used
