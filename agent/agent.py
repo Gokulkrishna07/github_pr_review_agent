@@ -163,7 +163,9 @@ def _build_review_body(
     all_nit: list[str] = []
 
     for filename, review in file_reviews:
-        all_good.extend(review.get("whats_good", []))
+        for item in review.get("whats_good", []):
+            if item not in all_good:
+                all_good.append(item)
         for item in review.get("critical", []):
             all_critical.append(f"{item['issue']} `[{filename} {item.get('location', '')}]`")
         for item in review.get("major", []):
@@ -208,7 +210,7 @@ def _build_review_body(
                 lines.append(f"- issue {i} — {issue}")
             lines.append("")
     else:
-        lines += ["", "### ✅ No issues found — looks good!"]
+        lines += ["", "### ✅ This is a solid PR and good to merge"]
 
     lines += ["", "---", f"*Reviewed by PR Review Bot · powered by Groq {model}*"]
     return "\n".join(lines)
