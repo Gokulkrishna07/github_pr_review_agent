@@ -100,24 +100,14 @@ class TestGetPrFiles:
         first_page = [{"filename": f"f{i}.py"} for i in range(PAGE_SIZE)]
         second_page = []  # empty second page signals end
 
-        responses = [
-            _fake_response(200, first_page),
-            _fake_response(200, second_page),
-        ]
+        responses = [_fake_response(200, first_page), _fake_response(200, second_page)]
 
-        call_count = 0
-        original_responses = list(responses)
-
-        async def side_effect(*args, **kwargs):
-            nonlocal call_count
-            resp = original_responses[call_count]
-            call_count += 1
-            return resp
-
-        with patch("httpx.AsyncClient.request", new_callable=AsyncMock, side_effect=side_effect):
+        with patch(
+            "httpx.AsyncClient.request", new_callable=AsyncMock, side_effect=responses
+        ) as mock_req:
             result = await get_pr_files("owner", "repo", 1, "token")
 
-        assert call_count == 2
+        assert mock_req.call_count == 2
         assert len(result) == PAGE_SIZE
 
 
@@ -175,36 +165,26 @@ class TestRequestWithRetry:
     async def test_does_not_retry_on_404(self):
         not_found = _fake_response(404, {})
 
-        call_count = 0
-
-        async def side_effect(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            return not_found
-
         async with httpx.AsyncClient() as client:
-            with patch.object(client, "request", new_callable=AsyncMock, side_effect=side_effect):
+            with patch.object(
+                client, "request", new_callable=AsyncMock, return_value=not_found
+            ) as mock_req:
                 result = await _request_with_retry(client, "GET", "http://example.com", token="tok")
 
         assert result.status_code == 404
-        assert call_count == 1
+        assert mock_req.call_count == 1
 
     async def test_does_not_retry_on_500(self):
         server_error = _fake_response(500, {})
 
-        call_count = 0
-
-        async def side_effect(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            return server_error
-
         async with httpx.AsyncClient() as client:
-            with patch.object(client, "request", new_callable=AsyncMock, side_effect=side_effect):
+            with patch.object(
+                client, "request", new_callable=AsyncMock, return_value=server_error
+            ) as mock_req:
                 result = await _request_with_retry(client, "GET", "http://example.com", token="tok")
 
         assert result.status_code == 500
-        assert call_count == 1
+        assert mock_req.call_count == 1
 
     async def test_exhausts_all_retries_and_returns_last_response(self):
         rate_limited = _fake_response(429, {})

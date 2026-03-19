@@ -27,9 +27,9 @@ class TestVerifySignature:
         assert verify_signature(tampered, sig, self.SECRET) is False
 
     def test_missing_sha256_prefix_rejected(self):
-        digest = hmac.new(self.SECRET.encode("utf-8"), self.PAYLOAD, hashlib.sha256).hexdigest()
+        raw_hex_digest = hmac.new(self.SECRET.encode("utf-8"), self.PAYLOAD, hashlib.sha256).hexdigest()
         # Provide raw hex without the "sha256=" prefix
-        assert verify_signature(self.PAYLOAD, digest, self.SECRET) is False
+        assert verify_signature(self.PAYLOAD, raw_hex_digest, self.SECRET) is False
 
     def test_empty_signature_rejected(self):
         assert verify_signature(self.PAYLOAD, "", self.SECRET) is False
@@ -51,3 +51,12 @@ class TestVerifySignature:
         payload = bytes(range(256))
         sig = _make_signature(payload, "other-secret")
         assert verify_signature(payload, sig, self.SECRET) is False
+
+    def test_none_signature_rejected(self):
+        assert verify_signature(self.PAYLOAD, None, self.SECRET) is False
+
+    def test_none_payload_rejected(self):
+        assert verify_signature(None, "sha256=abc", self.SECRET) is False
+
+    def test_none_secret_rejected(self):
+        assert verify_signature(self.PAYLOAD, "sha256=abc", None) is False
