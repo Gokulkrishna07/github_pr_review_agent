@@ -60,23 +60,31 @@ async def webhook(
 ):
     body = await request.body()
 
+    if len(body) > 25 * 1024 * 1024:
+        return Response(status_code=413, content="Payload too large")
+
     if not verify_signature(body, x_hub_signature_256, settings.gh_webhook_secret):
+        client_ip = request.client.host if request.client else "unknown"
+        logger.warning("Invalid signature from %s", client_ip)
         return Response(status_code=401, content="Invalid signature")
 
     if x_github_event != "pull_request":
         return {"status": "ignored", "reason": f"event={x_github_event}"}
 
-    payload = await request.json()
-    action = payload.get("action", "")
-    if action not in ("opened", "synchronize"):
-        return {"status": "ignored", "reason": f"action={action}"}
+    try:
+        payload = await request.json()
+        action = payload.get("action", "")
+        if action not in ("opened", "synchronize"):
+            return {"status": "ignored", "reason": f"action={action}"}
 
-    pr = payload["pull_request"]
-    repo = payload["repository"]
-    owner = repo["owner"]["login"]
-    repo_name = repo["name"]
-    pr_number = pr["number"]
-    commit_sha = pr["head"]["sha"]
+        pr = payload["pull_request"]
+        repo = payload["repository"]
+        owner = repo["owner"]["login"]
+        repo_name = repo["name"]
+        pr_number = pr["number"]
+        commit_sha = pr["head"]["sha"]
+    except (KeyError, Exception):
+        return Response(status_code=400, content="Malformed payload")
 
     logger.info(
         "Processing PR #%d (%s/%s) action=%s", pr_number, owner, repo_name, action
