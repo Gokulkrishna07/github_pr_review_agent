@@ -47,7 +47,10 @@ async def health():
 
 
 @app.get("/metrics")
-async def metrics():
+async def metrics(request: Request):
+    client_ip = request.client.host if request.client else ""
+    if not (client_ip in ("127.0.0.1", "::1") or client_ip.startswith(("10.", "172.", "192.168."))):
+        return Response(status_code=403, content="Forbidden")
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 

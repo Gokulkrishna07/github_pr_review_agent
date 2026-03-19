@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     groq_timeout: int = 60
     log_level: str = "INFO"
     max_diff_lines: int = 500
+    idempotency_db_path: str = "/app/data/reviews.db"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
