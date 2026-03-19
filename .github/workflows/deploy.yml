@@ -5,7 +5,16 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v1
+        with:
+          src: ./agent
+
   deploy:
+    needs: lint
     runs-on: ubuntu-latest
     steps:
       - name: Deploy via SSH

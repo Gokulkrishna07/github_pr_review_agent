@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 
 BASE = "https://api.github.com"
 MAX_RETRIES = 3
+PAGE_SIZE = 100
 
 
 def _headers(token: str) -> dict:
@@ -17,42 +18,56 @@ def _headers(token: str) -> dict:
     }
 
 
-async def get_pr_files(
-    owner: str, repo: str, pr_number: int, token: str
-) -> list[dict]:
-    """Fetch all files changed in a PR."""
-    url = f"{BASE}/repos/{owner}/{repo}/pulls/{pr_number}/files"
+async def get_pr_details(owner: str, repo: str, pr_number: int, token: str) -> dict:
+    """Fetch PR title and description."""
+    url = f"{BASE}/repos/{owner}/{repo}/pulls/{pr_number}"
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await _request_with_retry(client, "GET", url, token=token)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        return {
+            "title": data.get("title", ""),
+            "description": data.get("body", "") or "",
+        }
 
 
-async def post_review(
+async def get_pr_files(
+    owner: str, repo: str, pr_number: int, token: str
+) -> list[dict]:
+    """Fetch all files changed in a PR (handles pagination)."""
+    files = []
+    page = 1
+    async with httpx.AsyncClient(timeout=30) as client:
+        while True:
+            url = f"{BASE}/repos/{owner}/{repo}/pulls/{pr_number}/files"
+            resp = await _request_with_retry(
+                client, "GET", url, token=token,
+                params={"per_page": PAGE_SIZE, "page": page},
+            )
+            resp.raise_for_status()
+            page_data = resp.json()
+            files.extend(page_data)
+            if len(page_data) < PAGE_SIZE:
+                break
+            page += 1
+    return files
+
+
+async def post_pr_comment(
     owner: str,
     repo: str,
     pr_number: int,
-    commit_sha: str,
-    comments: list[dict],
+    body: str,
     token: str,
 ) -> None:
-    """Post a review with inline comments to a PR."""
-    if not comments:
-        logger.info("No comments to post for PR #%d", pr_number)
-        return
-
-    url = f"{BASE}/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
-    body = {
-        "commit_id": commit_sha,
-        "event": "COMMENT",
-        "comments": comments,
-    }
+    """Post a single summary comment to the PR conversation."""
+    url = f"{BASE}/repos/{owner}/{repo}/issues/{pr_number}/comments"
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await _request_with_retry(
-            client, "POST", url, token=token, json=body
+            client, "POST", url, token=token, json={"body": body}
         )
         resp.raise_for_status()
-    logger.info("Posted review with %d comments on PR #%d", len(comments), pr_number)
+    logger.info("Posted review comment on PR #%d", pr_number)
 
 
 async def _request_with_retry(
@@ -62,17 +77,16 @@ async def _request_with_retry(
     *,
     token: str,
     json: dict | None = None,
+    params: dict | None = None,
 ) -> httpx.Response:
     """Retry on 403/429 with exponential backoff."""
     for attempt in range(MAX_RETRIES):
         resp = await client.request(
-            method, url, headers=_headers(token), json=json
+            method, url, headers=_headers(token), json=json, params=params
         )
         if resp.status_code in (403, 429) and attempt < MAX_RETRIES - 1:
             wait = 2 ** (attempt + 1)
-            logger.warning(
-                "Rate limited (%d), retrying in %ds...", resp.status_code, wait
-            )
+            logger.warning("Rate limited (%d), retrying in %ds...", resp.status_code, wait)
             await asyncio.sleep(wait)
             continue
         return resp
