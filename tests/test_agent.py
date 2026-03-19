@@ -76,7 +76,7 @@ class TestBuildReviewBody:
         file_reviews = [("src/clean.py", _empty_review())]
         body = _build_review_body(file_reviews, "Clean PR", "model")
 
-        assert "### ✅ No issues found — looks good!" in body
+        assert "### ✅ This is a solid PR and good to merge" in body
         assert "**🔴 Critical:**" not in body
         assert "**🟡 Major:**" not in body
 
@@ -87,7 +87,7 @@ class TestBuildReviewBody:
 
         assert "Excellent structure" in body
         assert "### Issues Found" not in body
-        assert "### ✅ No issues found — looks good!" in body
+        assert "### ✅ This is a solid PR and good to merge" in body
 
     def test_critical_issues_numbered_starting_from_1(self):
         review = {

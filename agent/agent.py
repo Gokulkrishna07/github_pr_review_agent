@@ -208,7 +208,7 @@ def _build_review_body(
                 lines.append(f"- issue {i} — {issue}")
             lines.append("")
     else:
-        lines += ["", "### ✅ No issues found — looks good!"]
+        lines += ["", "### ✅ This is a solid PR and good to merge"]
 
     lines += ["", "---", f"*Reviewed by PR Review Bot · powered by Groq {model}*"]
     return "\n".join(lines)

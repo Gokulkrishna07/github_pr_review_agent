@@ -33,6 +33,7 @@ Rules:
 - "location" must reference the line number visible in the diff
 - Only flag issues clearly present in the code shown — do not assume things are missing if they are not visible
 - Use empty array [] for categories with nothing to report
+- If there are NO issues at all, set all issue arrays to [] and include "This is a solid PR and good to merge" as the first item in whats_good
 - Return ONLY valid JSON, no other text
 
 PR context: {pr_title}
