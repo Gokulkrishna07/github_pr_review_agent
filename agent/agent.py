@@ -1,11 +1,12 @@
 import asyncio
+from contextlib import asynccontextmanager
 import contextvars
 import json
 import logging
 import time
 import uuid
 
-from fastapi import BackgroundTasks, FastAPI, Header, Request, Response
+from fastapi import FastAPI, Header, Request, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from .config import settings
@@ -44,10 +45,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="PR Review Agent")
-
 _MAX_CONCURRENT_REVIEWS = 3
+_MAX_QUEUED_REVIEWS = 20
 _semaphore = asyncio.Semaphore(_MAX_CONCURRENT_REVIEWS)
+_active_tasks: set[asyncio.Task] = set()
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    yield
+    # Graceful shutdown: wait for active review tasks to finish
+    if _active_tasks:
+        logger.info("Shutting down: waiting for %d active review(s) to complete...", len(_active_tasks))
+        done, pending = await asyncio.wait(_active_tasks, timeout=120)
+        if pending:
+            logger.warning("Shutdown timeout: %d review(s) still running, cancelling", len(pending))
+            for task in pending:
+                task.cancel()
+
+
+app = FastAPI(title="PR Review Agent", lifespan=_lifespan)
 
 _ip_request_times: dict[str, list[float]] = {}
 _RATE_LIMIT_MAX_REQUESTS = 60
@@ -78,7 +95,6 @@ async def metrics(request: Request):
 @app.post("/webhook")
 async def webhook(
     request: Request,
-    background_tasks: BackgroundTasks,
     x_hub_signature_256: str = Header(default=""),
     x_github_event: str = Header(default=""),
     x_github_delivery: str = Header(default=""),
@@ -125,13 +141,21 @@ async def webhook(
     except (KeyError, Exception):
         return Response(status_code=400, content="Malformed payload")
 
+    if review_queue_depth._value.get() >= _MAX_QUEUED_REVIEWS:
+        logger.warning("Review queue full (%d), rejecting PR #%d", _MAX_QUEUED_REVIEWS, pr_number)
+        return Response(status_code=503, content="Review queue full, try again later")
+
     logger.info(
         "Processing PR #%d (%s/%s) action=%s", pr_number, owner, repo_name, action
     )
     review_queue_depth.inc()
-    background_tasks.add_task(
-        process_review, owner, repo_name, pr_number, commit_sha, installation_id, delivery_id
+
+    task = asyncio.create_task(
+        process_review(owner, repo_name, pr_number, commit_sha, installation_id, delivery_id)
     )
+    _active_tasks.add(task)
+    task.add_done_callback(_active_tasks.discard)
+
     return {"status": "processing", "pr": pr_number}
 
 
