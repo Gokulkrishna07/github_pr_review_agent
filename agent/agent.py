@@ -167,6 +167,8 @@ async def process_review(
 
         logger.info("PR #%d: reviewing %d files", pr_number, len(diffs))
 
+        _per_file_timeout = settings.groq_timeout * 2  # generous per-file budget
+
         async def review_one(diff):
             async with _semaphore:
                 file_content = await get_file_content(
@@ -183,11 +185,16 @@ async def process_review(
                     file_content=file_content,
                 )
 
-        results = await asyncio.gather(*(review_one(d) for d in diffs), return_exceptions=True)
+        results = await asyncio.gather(
+            *(asyncio.wait_for(review_one(d), timeout=_per_file_timeout) for d in diffs),
+            return_exceptions=True,
+        )
 
         file_reviews = []
-        for result in results:
-            if isinstance(result, GroqAPIError):
+        for i, result in enumerate(results):
+            if isinstance(result, asyncio.TimeoutError):
+                logger.error("File review timed out after %ds: %s", _per_file_timeout, diffs[i].filename)
+            elif isinstance(result, GroqAPIError):
                 logger.error("LLM review failed for a file: %s", result)
             elif isinstance(result, AgentError):
                 logger.error("Agent error during file review: %s", result)

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -12,6 +13,9 @@ from .prompts import build_review_prompt
 from .types import FileReview
 
 logger = logging.getLogger(__name__)
+
+MAX_RETRIES = 3
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 
@@ -63,17 +67,34 @@ async def review_diff(
 
     client = _get_groq_client(api_key, timeout)
     start = time.monotonic()
+    last_error: Exception | None = None
     try:
-        chat_completion = await client.chat.completions.create(
-            messages=[{"role": "user", "content": prompt}],
-            model=model,
-            temperature=0.2,
-            max_tokens=1024,
-        )
-        groq_requests_total.labels(status="success").inc()
-    except Exception as e:
-        groq_requests_total.labels(status="error").inc()
-        raise GroqAPIError(f"Groq API call failed for {filename}: {e}") from e
+        for attempt in range(MAX_RETRIES):
+            try:
+                chat_completion = await client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=model,
+                    temperature=0.2,
+                    max_tokens=1024,
+                )
+                groq_requests_total.labels(status="success").inc()
+                break
+            except Exception as e:
+                last_error = e
+                status_code = getattr(e, "status_code", None)
+                if status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES - 1:
+                    wait = 2 ** (attempt + 1)
+                    logger.warning(
+                        "Groq API error for %s (status %s), retrying in %ds (attempt %d/%d)...",
+                        filename, status_code, wait, attempt + 1, MAX_RETRIES,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                groq_requests_total.labels(status="error").inc()
+                raise GroqAPIError(f"Groq API call failed for {filename}: {e}") from e
+        else:
+            groq_requests_total.labels(status="error").inc()
+            raise GroqAPIError(f"Groq API call failed for {filename} after {MAX_RETRIES} retries: {last_error}") from last_error
     finally:
         groq_request_duration_seconds.observe(time.monotonic() - start)
 
