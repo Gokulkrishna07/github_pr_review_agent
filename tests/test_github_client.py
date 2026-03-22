@@ -138,9 +138,12 @@ class TestGetPrFiles:
         first_page = [{"filename": f"file_{i}.py"} for i in range(PAGE_SIZE)]
         second_page = [{"filename": "last.py"}]
 
+        # After full first page, pages 2-4 are fetched in parallel
         responses = [
-            _fake_response(200, first_page),
-            _fake_response(200, second_page),
+            _fake_response(200, first_page),   # page 1
+            _fake_response(200, second_page),   # page 2 (partial → stops)
+            _fake_response(200, []),             # page 3 (empty)
+            _fake_response(200, []),             # page 4 (empty)
         ]
 
         with patch(
@@ -151,19 +154,24 @@ class TestGetPrFiles:
         assert len(result) == PAGE_SIZE + 1
         assert result[-1]["filename"] == "last.py"
 
-    async def test_exactly_page_size_triggers_second_request(self):
-        """When first page returns exactly PAGE_SIZE items, a second page must be fetched."""
+    async def test_exactly_page_size_triggers_parallel_fetch(self):
+        """When first page returns exactly PAGE_SIZE items, pages 2-4 are fetched in parallel."""
         first_page = [{"filename": f"f{i}.py"} for i in range(PAGE_SIZE)]
-        second_page = []  # empty second page signals end
 
-        responses = [_fake_response(200, first_page), _fake_response(200, second_page)]
+        # Pages 2-4 fetched in parallel; all empty
+        responses = [
+            _fake_response(200, first_page),
+            _fake_response(200, []),
+            _fake_response(200, []),
+            _fake_response(200, []),
+        ]
 
         with patch(
             "httpx.AsyncClient.request", new_callable=AsyncMock, side_effect=responses
         ) as mock_req:
             result = await get_pr_files("owner", "repo", 1, "token")
 
-        assert mock_req.call_count == 2
+        assert mock_req.call_count == 4  # 1 initial + 3 parallel
         assert len(result) == PAGE_SIZE
 
 
