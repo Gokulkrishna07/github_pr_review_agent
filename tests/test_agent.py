@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -496,3 +497,82 @@ class TestProcessReview:
 
         after = review_queue_depth._value.get()
         assert after == before - 1
+
+    async def test_process_review_sets_trace_id(self):
+        from agent.agent import trace_id
+
+        with (
+            patch("agent.agent.is_already_reviewed", return_value=True),
+        ):
+            await process_review("owner", "repo", 1, "sha", delivery_id="test-delivery-123")
+
+        assert trace_id.get() == "test-delivery-123"
+
+    async def test_process_review_default_delivery_id(self):
+        from agent.agent import trace_id
+
+        with (
+            patch("agent.agent.is_already_reviewed", return_value=True),
+        ):
+            await process_review("owner", "repo", 1, "sha")
+
+        assert trace_id.get() == "-"
+
+
+class TestWebhookTraceId:
+    async def test_delivery_header_sets_trace_id(self, client):
+        pr_payload = _pr_payload(action="opened", pr_number=42)
+        payload = json.dumps(pr_payload).encode()
+        sig = _sign(payload)
+
+        with patch("agent.agent.process_review", new_callable=AsyncMock):
+            resp = await client.post(
+                "/webhook",
+                content=payload,
+                headers={
+                    "x-hub-signature-256": sig,
+                    "x-github-event": "pull_request",
+                    "x-github-delivery": "abc-delivery-id",
+                    "content-type": "application/json",
+                },
+            )
+
+        assert resp.status_code == 200
+        from agent.agent import trace_id
+        assert trace_id.get() == "abc-delivery-id"
+
+    async def test_missing_delivery_header_generates_uuid(self, client):
+        pr_payload = _pr_payload(action="opened", pr_number=42)
+        payload = json.dumps(pr_payload).encode()
+        sig = _sign(payload)
+
+        with patch("agent.agent.process_review", new_callable=AsyncMock):
+            resp = await client.post(
+                "/webhook",
+                content=payload,
+                headers={
+                    "x-hub-signature-256": sig,
+                    "x-github-event": "pull_request",
+                    "content-type": "application/json",
+                },
+            )
+
+        assert resp.status_code == 200
+        from agent.agent import trace_id
+        tid = trace_id.get()
+        assert tid != "-"
+        assert len(tid) == 36  # UUID format
+
+    async def test_trace_id_in_json_log_output(self):
+        from agent.agent import _JSONFormatter, trace_id
+
+        trace_id.set("test-trace-789")
+        formatter = _JSONFormatter()
+        record = logging.LogRecord(
+            name="test", level=logging.INFO, pathname="", lineno=0,
+            msg="hello", args=(), exc_info=None,
+        )
+        output = formatter.format(record)
+        parsed = json.loads(output)
+        assert parsed["trace_id"] == "test-trace-789"
+        assert parsed["message"] == "hello"
