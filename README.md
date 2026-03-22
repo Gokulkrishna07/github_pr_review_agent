@@ -19,6 +19,7 @@ GitHub Webhook → FastAPI Agent → Groq LLM → GitHub Review Comments
 - Ubuntu VM with k3s (production)
 - GitHub personal access token with `repo` scope
 - GitHub webhook secret
+- Groq API key (free tier available at [console.groq.com](https://console.groq.com))
 
 ## Local Development
 
