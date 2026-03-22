@@ -6,10 +6,10 @@ import time
 from groq import AsyncGroq
 from pydantic import BaseModel, ValidationError
 
-from .exceptions import GroqAPIError, GroqParseError
+from .exceptions import GroqAPIError
 from .metrics import groq_request_duration_seconds, groq_requests_total, llm_tokens_used_total
 from .prompts import build_review_prompt
-from .types import FileReview, ReviewComment
+from .types import FileReview
 
 logger = logging.getLogger(__name__)
 
