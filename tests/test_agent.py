@@ -194,6 +194,35 @@ class TestHealthEndpoint:
         assert resp.json() == {"status": "ok"}
 
 
+class TestReadyEndpoint:
+    async def test_ready_returns_ok_when_idle(self, client):
+        from agent.metrics import active_reviews
+
+        active_reviews._value.set(0)
+        resp = await client.get("/ready")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ready"}
+
+    async def test_ready_returns_503_when_at_capacity(self, client):
+        from agent.agent import _MAX_CONCURRENT_REVIEWS
+        from agent.metrics import active_reviews
+
+        active_reviews._value.set(_MAX_CONCURRENT_REVIEWS)
+        resp = await client.get("/ready")
+        assert resp.status_code == 503
+        active_reviews._value.set(0)
+
+    async def test_ready_returns_ok_when_below_capacity(self, client):
+        from agent.agent import _MAX_CONCURRENT_REVIEWS
+        from agent.metrics import active_reviews
+
+        active_reviews._value.set(_MAX_CONCURRENT_REVIEWS - 1)
+        resp = await client.get("/ready")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ready"}
+        active_reviews._value.set(0)
+
+
 class TestMetricsEndpoint:
     async def test_get_metrics_returns_200_with_text_plain(self, client):
         resp = await client.get("/metrics")
