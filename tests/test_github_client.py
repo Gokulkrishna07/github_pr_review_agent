@@ -7,8 +7,10 @@ import pytest
 import base64
 
 from agent.github_client import (
+    GitHubAPIError,
     PAGE_SIZE,
     _headers,
+    _parse_json,
     _request_with_retry,
     get_file_content,
     get_pr_details,
@@ -402,3 +404,71 @@ class TestRequestWithRetry:
                 await _request_with_retry(client, "GET", "http://example.com", token="tok")
 
         mock_retry.inc.assert_not_called()
+
+
+class TestParseJson:
+    def test_valid_json_parsed(self):
+        resp = MagicMock(spec=httpx.Response)
+        resp.json.return_value = {"key": "value"}
+        assert _parse_json(resp) == {"key": "value"}
+
+    def test_valid_json_list_parsed(self):
+        resp = MagicMock(spec=httpx.Response)
+        resp.json.return_value = [1, 2, 3]
+        assert _parse_json(resp) == [1, 2, 3]
+
+    def test_non_json_raises_github_api_error(self):
+        resp = MagicMock(spec=httpx.Response)
+        resp.json.side_effect = ValueError("No JSON")
+        resp.status_code = 502
+        resp.text = "<html>Bad Gateway</html>"
+
+        with pytest.raises(GitHubAPIError, match="non-JSON.*502"):
+            _parse_json(resp)
+
+    def test_error_includes_truncated_body(self):
+        resp = MagicMock(spec=httpx.Response)
+        resp.json.side_effect = ValueError("No JSON")
+        resp.status_code = 500
+        resp.text = "x" * 500
+
+        with pytest.raises(GitHubAPIError) as exc_info:
+            _parse_json(resp)
+        # Body is truncated to 200 chars
+        assert len(str(exc_info.value)) < 300
+
+    def test_error_preserves_original_cause(self):
+        resp = MagicMock(spec=httpx.Response)
+        original = ValueError("Expecting value")
+        resp.json.side_effect = original
+        resp.status_code = 502
+        resp.text = "oops"
+
+        with pytest.raises(GitHubAPIError) as exc_info:
+            _parse_json(resp)
+        assert exc_info.value.__cause__ is original
+
+
+class TestGetPrDetailsJsonError:
+    async def test_non_json_response_raises_github_api_error(self):
+        resp = MagicMock(spec=httpx.Response)
+        resp.status_code = 200
+        resp.json.side_effect = ValueError("No JSON")
+        resp.text = "<html>error</html>"
+        resp.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient.request", new_callable=AsyncMock, return_value=resp):
+            with pytest.raises(GitHubAPIError):
+                await get_pr_details("owner", "repo", 1, "token")
+
+
+class TestGetFileContentJsonError:
+    async def test_non_json_response_raises_github_api_error(self):
+        resp = MagicMock(spec=httpx.Response)
+        resp.status_code = 200
+        resp.json.side_effect = ValueError("No JSON")
+        resp.text = "<html>error</html>"
+
+        with patch("httpx.AsyncClient.request", new_callable=AsyncMock, return_value=resp):
+            with pytest.raises(GitHubAPIError):
+                await get_file_content("owner", "repo", "file.py", "abc123", "token")

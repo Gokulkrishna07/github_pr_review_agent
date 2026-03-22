@@ -15,6 +15,21 @@ PAGE_SIZE = 100
 RETRYABLE_STATUS_CODES = {403, 429, 500, 502, 503, 504}
 
 
+class GitHubAPIError(RuntimeError):
+    """Raised when the GitHub API returns a non-JSON or unexpected response."""
+
+
+def _parse_json(resp: httpx.Response):
+    """Parse JSON from a response, raising a clear error on non-JSON bodies."""
+    try:
+        return resp.json()
+    except ValueError as e:
+        raise GitHubAPIError(
+            f"GitHub API returned non-JSON (status {resp.status_code}): "
+            f"{resp.text[:200]}"
+        ) from e
+
+
 def _headers(token: str) -> dict:
     return {
         "Authorization": f"Bearer {token}",
@@ -29,7 +44,7 @@ async def get_pr_details(owner: str, repo: str, pr_number: int, token: str) -> d
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await _request_with_retry(client, "GET", url, token=token, endpoint="pr_details")
         resp.raise_for_status()
-        data = resp.json()
+        data = _parse_json(resp)
         return {
             "title": data.get("title", ""),
             "description": data.get("body", "") or "",
@@ -49,7 +64,7 @@ async def get_pr_files(
             endpoint="pr_files",
         )
         r.raise_for_status()
-        return r.json()
+        return _parse_json(r)
 
     async with httpx.AsyncClient(timeout=30) as client:
         first_page = await _fetch_page(client, 1)
@@ -91,7 +106,7 @@ async def get_file_content(
         if resp.status_code != 200:
             logger.warning("Could not fetch content for %s (status %d)", path, resp.status_code)
             return None
-        data = resp.json()
+        data = _parse_json(resp)
         if data.get("encoding") != "base64" or not data.get("content"):
             return None
         return base64.b64decode(data["content"]).decode("utf-8", errors="replace")
