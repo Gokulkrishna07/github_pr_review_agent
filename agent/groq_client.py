@@ -4,6 +4,7 @@ import re
 import time
 
 from groq import AsyncGroq
+from pydantic import BaseModel, ValidationError
 
 from .exceptions import GroqAPIError, GroqParseError
 from .metrics import groq_request_duration_seconds, groq_requests_total, llm_tokens_used_total
@@ -11,6 +12,23 @@ from .prompts import build_review_prompt
 from .types import FileReview, ReviewComment
 
 logger = logging.getLogger(__name__)
+
+
+
+class ReviewItem(BaseModel):
+    """A single review issue with location."""
+    issue: str
+    location: str = ""
+
+
+class ReviewResponse(BaseModel):
+    """Schema for validated LLM review response."""
+    whats_good: list[str] = []
+    critical: list[ReviewItem] = []
+    major: list[ReviewItem] = []
+    minor: list[ReviewItem] = []
+    nit: list[ReviewItem] = []
+
 
 
 async def review_diff(
@@ -92,17 +110,24 @@ def _extract_candidates(text: str) -> list[str]:
 
 
 def _validate_review(data: dict) -> FileReview:
-    result = _empty_review()
-    for key in ("whats_good",):
-        result[key] = [str(i) for i in data.get(key, []) if isinstance(i, str)]
-    for key in ("critical", "major", "minor", "nit"):
-        for item in data.get(key, []):
-            if isinstance(item, dict) and isinstance(item.get("issue"), str):
-                result[key].append(
-                    {"issue": item["issue"], "location": str(item.get("location", ""))}
-                )
-    return result
+    """Validate LLM response against ReviewResponse schema, filtering invalid items."""
+    try:
+        validated = ReviewResponse(**data)
+        return validated.model_dump()
+    except ValidationError:
+        logger.warning("LLM response failed schema validation, falling back to manual filter: %s", str(data)[:200])
+        # Graceful fallback: manually extract what we can
+        result = _empty_review()
+        for key in ("whats_good",):
+            result[key] = [str(i) for i in data.get(key, []) if isinstance(i, str)]
+        for key in ("critical", "major", "minor", "nit"):
+            for item in data.get(key, []):
+                if isinstance(item, dict) and isinstance(item.get("issue"), str):
+                    result[key].append(
+                        {"issue": item["issue"], "location": str(item.get("location", ""))}
+                    )
+        return result
 
 
 def _empty_review() -> FileReview:
-    return {"whats_good": [], "critical": [], "major": [], "minor": [], "nit": []}
+    return ReviewResponse().model_dump()

@@ -5,12 +5,15 @@ import pytest
 
 from agent.exceptions import GroqAPIError
 from agent.groq_client import (
+    ReviewItem,
+    ReviewResponse,
     _empty_review,
     _extract_candidates,
     _parse_response,
     _validate_review,
     review_diff,
 )
+from agent.prompts import FULL_FILE_MAX_LINES, _build_file_content_section
 from agent.prompts import FULL_FILE_MAX_LINES, _build_file_content_section
 
 
@@ -428,3 +431,83 @@ class TestReviewDiff:
 
         mock_tokens.labels.assert_not_called()
         assert result == _empty_review()
+
+
+class TestReviewResponseSchema:
+    def test_valid_response_parses(self):
+        resp = ReviewResponse(
+            whats_good=["Clean code"],
+            critical=[ReviewItem(issue="SQL injection", location="line 5")],
+            major=[],
+            minor=[],
+            nit=[],
+        )
+        assert resp.whats_good == ["Clean code"]
+        assert resp.critical[0].issue == "SQL injection"
+
+    def test_defaults_to_empty_lists(self):
+        resp = ReviewResponse()
+        assert resp.whats_good == []
+        assert resp.critical == []
+        assert resp.major == []
+
+    def test_review_item_location_defaults_empty(self):
+        item = ReviewItem(issue="Bug")
+        assert item.location == ""
+
+    def test_model_dump_produces_dict(self):
+        resp = ReviewResponse(whats_good=["Good"])
+        d = resp.model_dump()
+        assert isinstance(d, dict)
+        assert d["whats_good"] == ["Good"]
+
+    def test_validate_review_with_valid_data(self):
+        data = {
+            "whats_good": ["Nice"],
+            "critical": [{"issue": "Bug", "location": "line 1"}],
+            "major": [],
+            "minor": [],
+            "nit": [],
+        }
+        result = _validate_review(data)
+        assert result["whats_good"] == ["Nice"]
+        assert result["critical"][0]["issue"] == "Bug"
+
+    def test_validate_review_with_wrong_structure_falls_back(self):
+        """LLM returns valid JSON with wrong keys — should still extract what it can."""
+        data = {
+            "issues": [{"text": "problem"}],
+            "whats_good": ["Something good"],
+        }
+        result = _validate_review(data)
+        # Should still extract whats_good via fallback
+        assert result["whats_good"] == ["Something good"]
+        assert result["critical"] == []
+
+    def test_validate_review_with_mixed_valid_invalid_items(self):
+        data = {
+            "whats_good": ["Good", 123],  # 123 is not a string
+            "critical": [
+                {"issue": "Real bug", "location": "line 5"},
+                {"bad_key": "nope"},  # missing "issue"
+            ],
+            "major": [],
+            "minor": [],
+            "nit": [],
+        }
+        result = _validate_review(data)
+        # Fallback path filters invalid items
+        assert "Good" in result["whats_good"]
+        assert len(result["critical"]) >= 1
+
+    def test_empty_review_uses_schema(self):
+        result = _empty_review()
+        assert set(result.keys()) == {"whats_good", "critical", "major", "minor", "nit"}
+        for v in result.values():
+            assert v == []
+
+    def test_parse_response_with_wrong_structure_logs_and_returns(self):
+        """Completely wrong JSON structure should still return empty review."""
+        result = _parse_response('{"answers": ["yes"]}')
+        assert result["whats_good"] == []
+        assert result["critical"] == []
