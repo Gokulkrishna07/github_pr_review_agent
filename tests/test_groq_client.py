@@ -5,14 +5,13 @@ import pytest
 
 from agent.exceptions import GroqAPIError
 from agent.groq_client import (
-    FULL_FILE_MAX_LINES,
-    _build_file_content_section,
     _empty_review,
     _extract_candidates,
     _parse_response,
     _validate_review,
     review_diff,
 )
+from agent.prompts import FULL_FILE_MAX_LINES, _build_file_content_section
 
 
 class TestBuildFileContentSection:
