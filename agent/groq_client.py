@@ -6,6 +6,7 @@ import time
 from groq import AsyncGroq
 
 from .metrics import groq_request_duration_seconds, groq_requests_total, llm_tokens_used_total
+from .types import FileReview, ReviewComment
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ async def review_diff(
     model: str,
     timeout: int,
     file_content: str | None = None,
-) -> dict:
+) -> FileReview:
     """Send a diff to Groq for review, return categorized review dict."""
     pr_title = _sanitize_input(pr_title, 200)
     pr_description = _sanitize_input(pr_description, 2000)
@@ -119,7 +120,7 @@ def _build_file_content_section(file_content: str | None) -> str:
     return f"Full file content for context:\n```\n{file_content}\n```\n"
 
 
-def _parse_response(text: str) -> dict:
+def _parse_response(text: str) -> FileReview:
     """Multi-layer parser: direct JSON → markdown block → regex fallback."""
     text = text.strip()
 
@@ -149,7 +150,7 @@ def _extract_candidates(text: str) -> list[str]:
     return candidates
 
 
-def _validate_review(data: dict) -> dict:
+def _validate_review(data: dict) -> FileReview:
     result = _empty_review()
     for key in ("whats_good",):
         result[key] = [str(i) for i in data.get(key, []) if isinstance(i, str)]
@@ -162,5 +163,5 @@ def _validate_review(data: dict) -> dict:
     return result
 
 
-def _empty_review() -> dict:
+def _empty_review() -> FileReview:
     return {"whats_good": [], "critical": [], "major": [], "minor": [], "nit": []}
