@@ -39,23 +39,42 @@ async def get_pr_details(owner: str, repo: str, pr_number: int, token: str) -> d
 async def get_pr_files(
     owner: str, repo: str, pr_number: int, token: str
 ) -> list[dict]:
-    """Fetch all files changed in a PR (handles pagination)."""
-    files = []
-    page = 1
+    """Fetch all files changed in a PR with parallel pagination."""
+    url = f"{BASE}/repos/{owner}/{repo}/pulls/{pr_number}/files"
+
+    async def _fetch_page(client: httpx.AsyncClient, page: int) -> list[dict]:
+        r = await _request_with_retry(
+            client, "GET", url, token=token,
+            params={"per_page": PAGE_SIZE, "page": page},
+            endpoint="pr_files",
+        )
+        r.raise_for_status()
+        return r.json()
+
     async with httpx.AsyncClient(timeout=30) as client:
+        first_page = await _fetch_page(client, 1)
+
+        if len(first_page) < PAGE_SIZE:
+            return first_page
+
+        # First page full — speculatively fetch pages 2-4 in parallel
+        extra = await asyncio.gather(*[_fetch_page(client, p) for p in range(2, 5)])
+
+        files = list(first_page)
+        for page_data in extra:
+            files.extend(page_data)
+            if len(page_data) < PAGE_SIZE:
+                return files
+
+        # Still more pages — continue sequentially from page 5
+        page = 5
         while True:
-            url = f"{BASE}/repos/{owner}/{repo}/pulls/{pr_number}/files"
-            resp = await _request_with_retry(
-                client, "GET", url, token=token,
-                params={"per_page": PAGE_SIZE, "page": page},
-                endpoint="pr_files",
-            )
-            resp.raise_for_status()
-            page_data = resp.json()
+            page_data = await _fetch_page(client, page)
             files.extend(page_data)
             if len(page_data) < PAGE_SIZE:
                 break
             page += 1
+
     return files
 
 
