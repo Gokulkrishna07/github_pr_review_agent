@@ -5,6 +5,7 @@ import time
 
 from groq import AsyncGroq
 
+from .exceptions import GroqAPIError, GroqParseError
 from .metrics import groq_request_duration_seconds, groq_requests_total, llm_tokens_used_total
 from .types import FileReview, ReviewComment
 
@@ -91,9 +92,9 @@ async def review_diff(
             max_tokens=1024,
         )
         groq_requests_total.labels(status="success").inc()
-    except Exception:
+    except Exception as e:
         groq_requests_total.labels(status="error").inc()
-        raise
+        raise GroqAPIError(f"Groq API call failed for {filename}: {e}") from e
     finally:
         groq_request_duration_seconds.observe(time.monotonic() - start)
 
