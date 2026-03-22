@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from agent.exceptions import GroqAPIError
 from agent.groq_client import (
     FULL_FILE_MAX_LINES,
     _build_file_content_section,
@@ -242,7 +243,7 @@ class TestReviewDiff:
         mocker.patch("agent.groq_client.llm_tokens_used_total")
 
         with patch("agent.groq_client.AsyncGroq", return_value=mock_client_instance):
-            with pytest.raises(RuntimeError, match="Groq API unavailable"):
+            with pytest.raises(GroqAPIError, match="Groq API call failed"):
                 await review_diff(
                     "main.py",
                     "+ def foo(): pass",
@@ -372,7 +373,7 @@ class TestReviewDiff:
         mocker.patch("agent.groq_client.llm_tokens_used_total")
 
         with patch("agent.groq_client.AsyncGroq", return_value=mock_client_instance):
-            with pytest.raises(RuntimeError):
+            with pytest.raises(GroqAPIError):
                 await review_diff(
                     "main.py", "+ line", pr_title="T", pr_description="",
                     api_key="key", model="model", timeout=10,

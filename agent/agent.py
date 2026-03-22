@@ -10,6 +10,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from .config import settings
 from .diff_parser import parse_pr_files
+from .exceptions import AgentError, GroqAPIError
 from .github_client import get_file_content, get_pr_details, get_pr_files, post_pr_comment
 from .groq_client import review_diff
 from .idempotency import is_already_reviewed, mark_as_reviewed
@@ -177,8 +178,12 @@ async def process_review(
 
         file_reviews = []
         for result in results:
-            if isinstance(result, Exception):
-                logger.error("Review failed for a file: %s", result)
+            if isinstance(result, GroqAPIError):
+                logger.error("LLM review failed for a file: %s", result)
+            elif isinstance(result, AgentError):
+                logger.error("Agent error during file review: %s", result)
+            elif isinstance(result, Exception):
+                logger.error("Unexpected error during file review: %s", result)
             else:
                 file_reviews.append(result)
 

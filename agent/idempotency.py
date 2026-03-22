@@ -1,5 +1,10 @@
+import logging
 import os
 import sqlite3
+
+from .exceptions import IdempotencyError
+
+logger = logging.getLogger(__name__)
 
 _DB_PATH = os.environ.get("IDEMPOTENCY_DB_PATH", "/app/data/reviews.db")
 
@@ -24,18 +29,24 @@ def _conn() -> sqlite3.Connection:
 
 
 def is_already_reviewed(owner: str, repo: str, pr_number: int, commit_sha: str) -> bool:
-    with _conn() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM processed_reviews WHERE owner=? AND repo=? AND pr_number=? AND commit_sha=?",
-            (owner, repo, pr_number, commit_sha),
-        ).fetchone()
-        return row is not None
+    try:
+        with _conn() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM processed_reviews WHERE owner=? AND repo=? AND pr_number=? AND commit_sha=?",
+                (owner, repo, pr_number, commit_sha),
+            ).fetchone()
+            return row is not None
+    except sqlite3.Error as e:
+        raise IdempotencyError(f"Failed to check review status: {e}") from e
 
 
 def mark_as_reviewed(owner: str, repo: str, pr_number: int, commit_sha: str) -> None:
-    with _conn() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO processed_reviews (owner, repo, pr_number, commit_sha) VALUES (?,?,?,?)",
-            (owner, repo, pr_number, commit_sha),
-        )
-        conn.commit()
+    try:
+        with _conn() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO processed_reviews (owner, repo, pr_number, commit_sha) VALUES (?,?,?,?)",
+                (owner, repo, pr_number, commit_sha),
+            )
+            conn.commit()
+    except sqlite3.Error as e:
+        raise IdempotencyError(f"Failed to mark review: {e}") from e
