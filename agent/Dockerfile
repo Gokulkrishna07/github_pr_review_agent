@@ -9,6 +9,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . agent/
 
+RUN mkdir -p /app/data && chown app:app /app/data
+
 USER app
 
 EXPOSE 8000
