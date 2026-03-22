@@ -43,7 +43,8 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="PR Review Agent")
 
-_semaphore = asyncio.Semaphore(3)
+_MAX_CONCURRENT_REVIEWS = 3
+_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_REVIEWS)
 
 _ip_request_times: dict[str, list[float]] = {}
 _RATE_LIMIT_MAX_REQUESTS = 60
@@ -53,6 +54,14 @@ _RATE_LIMIT_WINDOW_SECONDS = 60
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/ready")
+async def ready():
+    """Readiness probe: returns 503 if all review slots are occupied."""
+    if active_reviews._value.get() >= _MAX_CONCURRENT_REVIEWS:
+        return Response(status_code=503, content="At capacity")
+    return {"status": "ready"}
 
 
 @app.get("/metrics")
