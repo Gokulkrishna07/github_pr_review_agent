@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 BASE = "https://api.github.com"
 MAX_RETRIES = 3
 PAGE_SIZE = 100
+RETRYABLE_STATUS_CODES = {403, 429, 500, 502, 503, 504}
 
 
 def _headers(token: str) -> dict:
@@ -98,14 +99,14 @@ async def _request_with_retry(
     json: dict | None = None,
     params: dict | None = None,
 ) -> httpx.Response:
-    """Retry on 403/429 with exponential backoff."""
+    """Retry on rate-limit and transient server errors with exponential backoff."""
     for attempt in range(MAX_RETRIES):
         resp = await client.request(
             method, url, headers=_headers(token), json=json, params=params
         )
-        if resp.status_code in (403, 429) and attempt < MAX_RETRIES - 1:
+        if resp.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES - 1:
             wait = 2 ** (attempt + 1)
-            logger.warning("Rate limited (%d), retrying in %ds...", resp.status_code, wait)
+            logger.warning("GitHub API error (%d), retrying in %ds...", resp.status_code, wait)
             await asyncio.sleep(wait)
             continue
         return resp

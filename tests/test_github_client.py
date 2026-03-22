@@ -218,6 +218,54 @@ class TestRequestWithRetry:
 
         assert result.status_code == 200
 
+    async def test_retries_on_500_then_succeeds(self):
+        server_error = _fake_response(500, {})
+        success = _fake_response(200, {})
+
+        async with httpx.AsyncClient() as client:
+            with patch.object(
+                client, "request", new_callable=AsyncMock, side_effect=[server_error, success]
+            ), patch("asyncio.sleep", new_callable=AsyncMock):
+                result = await _request_with_retry(client, "GET", "http://example.com", token="tok")
+
+        assert result.status_code == 200
+
+    async def test_retries_on_502(self):
+        bad_gateway = _fake_response(502, {})
+        success = _fake_response(200, {})
+
+        async with httpx.AsyncClient() as client:
+            with patch.object(
+                client, "request", new_callable=AsyncMock, side_effect=[bad_gateway, success]
+            ), patch("asyncio.sleep", new_callable=AsyncMock):
+                result = await _request_with_retry(client, "GET", "http://example.com", token="tok")
+
+        assert result.status_code == 200
+
+    async def test_retries_on_503(self):
+        unavailable = _fake_response(503, {})
+        success = _fake_response(200, {})
+
+        async with httpx.AsyncClient() as client:
+            with patch.object(
+                client, "request", new_callable=AsyncMock, side_effect=[unavailable, success]
+            ), patch("asyncio.sleep", new_callable=AsyncMock):
+                result = await _request_with_retry(client, "GET", "http://example.com", token="tok")
+
+        assert result.status_code == 200
+
+    async def test_retries_on_504(self):
+        timeout = _fake_response(504, {})
+        success = _fake_response(200, {})
+
+        async with httpx.AsyncClient() as client:
+            with patch.object(
+                client, "request", new_callable=AsyncMock, side_effect=[timeout, success]
+            ), patch("asyncio.sleep", new_callable=AsyncMock):
+                result = await _request_with_retry(client, "GET", "http://example.com", token="tok")
+
+        assert result.status_code == 200
+
     async def test_does_not_retry_on_404(self):
         not_found = _fake_response(404, {})
 
@@ -230,17 +278,30 @@ class TestRequestWithRetry:
         assert result.status_code == 404
         assert mock_req.call_count == 1
 
-    async def test_does_not_retry_on_500(self):
-        server_error = _fake_response(500, {})
+    async def test_does_not_retry_on_401(self):
+        unauthorized = _fake_response(401, {})
 
         async with httpx.AsyncClient() as client:
             with patch.object(
-                client, "request", new_callable=AsyncMock, return_value=server_error
+                client, "request", new_callable=AsyncMock, return_value=unauthorized
             ) as mock_req:
                 result = await _request_with_retry(client, "GET", "http://example.com", token="tok")
 
-        assert result.status_code == 500
+        assert result.status_code == 401
         assert mock_req.call_count == 1
+
+    async def test_exhausts_all_retries_on_server_error(self):
+        server_error = _fake_response(500, {})
+        responses = [server_error, server_error, server_error]
+
+        async with httpx.AsyncClient() as client:
+            with patch.object(
+                client, "request", new_callable=AsyncMock, side_effect=responses
+            ) as mock_req, patch("asyncio.sleep", new_callable=AsyncMock):
+                result = await _request_with_retry(client, "GET", "http://example.com", token="tok")
+
+        assert result.status_code == 500
+        assert mock_req.call_count == 3
 
     async def test_exhausts_all_retries_and_returns_last_response(self):
         rate_limited = _fake_response(429, {})
