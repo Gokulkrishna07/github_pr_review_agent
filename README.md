@@ -32,7 +32,7 @@ GitHub Webhook → FastAPI Agent → Groq LLM → GitHub Review Comments
    ```bash
    docker-compose up --build
    ```
-   This starts Ollama, pulls the model, and starts the agent on port 8000.
+   This starts the agent on port 8000.
 
 3. Verify:
    ```bash
