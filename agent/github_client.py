@@ -14,6 +14,16 @@ MAX_RETRIES = 3
 PAGE_SIZE = 100
 RETRYABLE_STATUS_CODES = {403, 429, 500, 502, 503, 504}
 
+_shared_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    """Return a module-level shared httpx client, creating it on first use."""
+    global _shared_client
+    if _shared_client is None or _shared_client.is_closed:
+        _shared_client = httpx.AsyncClient(timeout=30)
+    return _shared_client
+
 
 class GitHubAPIError(RuntimeError):
     """Raised when the GitHub API returns a non-JSON or unexpected response."""
@@ -41,14 +51,14 @@ def _headers(token: str) -> dict:
 async def get_pr_details(owner: str, repo: str, pr_number: int, token: str) -> dict:
     """Fetch PR title and description."""
     url = f"{BASE}/repos/{owner}/{repo}/pulls/{pr_number}"
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await _request_with_retry(client, "GET", url, token=token, endpoint="pr_details")
-        resp.raise_for_status()
-        data = _parse_json(resp)
-        return {
-            "title": data.get("title", ""),
-            "description": data.get("body", "") or "",
-        }
+    client = _get_client()
+    resp = await _request_with_retry(client, "GET", url, token=token, endpoint="pr_details")
+    resp.raise_for_status()
+    data = _parse_json(resp)
+    return {
+        "title": data.get("title", ""),
+        "description": data.get("body", "") or "",
+    }
 
 
 async def get_pr_files(
@@ -56,8 +66,9 @@ async def get_pr_files(
 ) -> list[dict]:
     """Fetch all files changed in a PR with parallel pagination."""
     url = f"{BASE}/repos/{owner}/{repo}/pulls/{pr_number}/files"
+    client = _get_client()
 
-    async def _fetch_page(client: httpx.AsyncClient, page: int) -> list[dict]:
+    async def _fetch_page(page: int) -> list[dict]:
         r = await _request_with_retry(
             client, "GET", url, token=token,
             params={"per_page": PAGE_SIZE, "page": page},
@@ -66,29 +77,28 @@ async def get_pr_files(
         r.raise_for_status()
         return _parse_json(r)
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        first_page = await _fetch_page(client, 1)
+    first_page = await _fetch_page(1)
 
-        if len(first_page) < PAGE_SIZE:
-            return first_page
+    if len(first_page) < PAGE_SIZE:
+        return first_page
 
-        # First page full — speculatively fetch pages 2-4 in parallel
-        extra = await asyncio.gather(*[_fetch_page(client, p) for p in range(2, 5)])
+    # First page full — speculatively fetch pages 2-4 in parallel
+    extra = await asyncio.gather(*[_fetch_page(p) for p in range(2, 5)])
 
-        files = list(first_page)
-        for page_data in extra:
-            files.extend(page_data)
-            if len(page_data) < PAGE_SIZE:
-                return files
+    files = list(first_page)
+    for page_data in extra:
+        files.extend(page_data)
+        if len(page_data) < PAGE_SIZE:
+            return files
 
-        # Still more pages — continue sequentially from page 5
-        page = 5
-        while True:
-            page_data = await _fetch_page(client, page)
-            files.extend(page_data)
-            if len(page_data) < PAGE_SIZE:
-                break
-            page += 1
+    # Still more pages — continue sequentially from page 5
+    page = 5
+    while True:
+        page_data = await _fetch_page(page)
+        files.extend(page_data)
+        if len(page_data) < PAGE_SIZE:
+            break
+        page += 1
 
     return files
 
@@ -98,18 +108,18 @@ async def get_file_content(
 ) -> str | None:
     """Fetch full file content at a specific commit. Returns None if unavailable."""
     url = f"{BASE}/repos/{owner}/{repo}/contents/{path}"
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await _request_with_retry(
-            client, "GET", url, token=token, params={"ref": commit_sha},
-            endpoint="file_content",
-        )
-        if resp.status_code != 200:
-            logger.warning("Could not fetch content for %s (status %d)", path, resp.status_code)
-            return None
-        data = _parse_json(resp)
-        if data.get("encoding") != "base64" or not data.get("content"):
-            return None
-        return base64.b64decode(data["content"]).decode("utf-8", errors="replace")
+    client = _get_client()
+    resp = await _request_with_retry(
+        client, "GET", url, token=token, params={"ref": commit_sha},
+        endpoint="file_content",
+    )
+    if resp.status_code != 200:
+        logger.warning("Could not fetch content for %s (status %d)", path, resp.status_code)
+        return None
+    data = _parse_json(resp)
+    if data.get("encoding") != "base64" or not data.get("content"):
+        return None
+    return base64.b64decode(data["content"]).decode("utf-8", errors="replace")
 
 
 async def post_pr_comment(
@@ -121,12 +131,12 @@ async def post_pr_comment(
 ) -> None:
     """Post a single summary comment to the PR conversation."""
     url = f"{BASE}/repos/{owner}/{repo}/issues/{pr_number}/comments"
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await _request_with_retry(
-            client, "POST", url, token=token, json={"body": body},
-            endpoint="post_comment",
-        )
-        resp.raise_for_status()
+    client = _get_client()
+    resp = await _request_with_retry(
+        client, "POST", url, token=token, json={"body": body},
+        endpoint="post_comment",
+    )
+    resp.raise_for_status()
     logger.info("Posted review comment on PR #%d", pr_number)
 
 

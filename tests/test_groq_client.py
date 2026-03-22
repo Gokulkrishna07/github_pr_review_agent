@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import agent.groq_client as groq_client_module
 from agent.exceptions import GroqAPIError
 from agent.groq_client import (
     ReviewItem,
@@ -14,7 +15,14 @@ from agent.groq_client import (
     review_diff,
 )
 from agent.prompts import FULL_FILE_MAX_LINES, _build_file_content_section
-from agent.prompts import FULL_FILE_MAX_LINES, _build_file_content_section
+
+
+@pytest.fixture(autouse=True)
+def _reset_shared_groq_client():
+    """Reset the shared Groq client before each test so mocks take effect."""
+    groq_client_module._shared_groq = None
+    yield
+    groq_client_module._shared_groq = None
 
 
 class TestBuildFileContentSection:
