@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent.diff_parser import FileDiff, parse_pr_files, SKIP_EXTENSIONS
+from agent.diff_parser import FileDiff, parse_pr_files, SKIP_SUFFIXES
 
 
 def _make_file(filename="main.py", patch="+ line1\n+ line2", status="added"):

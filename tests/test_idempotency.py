@@ -13,53 +13,53 @@ def use_temp_db(tmp_path, monkeypatch):
 
 
 class TestIsAlreadyReviewed:
-    def test_fresh_db_returns_false(self):
-        assert is_already_reviewed("owner", "repo", 1, "abc123") is False
+    async def test_fresh_db_returns_false(self):
+        assert await is_already_reviewed("owner", "repo", 1, "abc123") is False
 
-    def test_after_mark_returns_true(self):
-        mark_as_reviewed("owner", "repo", 1, "abc123")
-        assert is_already_reviewed("owner", "repo", 1, "abc123") is True
+    async def test_after_mark_returns_true(self):
+        await mark_as_reviewed("owner", "repo", 1, "abc123")
+        assert await is_already_reviewed("owner", "repo", 1, "abc123") is True
 
-    def test_different_commit_sha_not_duplicate(self):
-        mark_as_reviewed("owner", "repo", 1, "sha-old")
-        assert is_already_reviewed("owner", "repo", 1, "sha-new") is False
+    async def test_different_commit_sha_not_duplicate(self):
+        await mark_as_reviewed("owner", "repo", 1, "sha-old")
+        assert await is_already_reviewed("owner", "repo", 1, "sha-new") is False
 
-    def test_different_pr_number_not_duplicate(self):
-        mark_as_reviewed("owner", "repo", 1, "sha")
-        assert is_already_reviewed("owner", "repo", 2, "sha") is False
+    async def test_different_pr_number_not_duplicate(self):
+        await mark_as_reviewed("owner", "repo", 1, "sha")
+        assert await is_already_reviewed("owner", "repo", 2, "sha") is False
 
-    def test_different_repo_same_owner_not_duplicate(self):
-        mark_as_reviewed("owner", "repo-a", 1, "sha")
-        assert is_already_reviewed("owner", "repo-b", 1, "sha") is False
+    async def test_different_repo_same_owner_not_duplicate(self):
+        await mark_as_reviewed("owner", "repo-a", 1, "sha")
+        assert await is_already_reviewed("owner", "repo-b", 1, "sha") is False
 
-    def test_different_owner_not_duplicate(self):
-        mark_as_reviewed("owner-a", "repo", 1, "sha")
-        assert is_already_reviewed("owner-b", "repo", 1, "sha") is False
+    async def test_different_owner_not_duplicate(self):
+        await mark_as_reviewed("owner-a", "repo", 1, "sha")
+        assert await is_already_reviewed("owner-b", "repo", 1, "sha") is False
 
 
 class TestMarkAsReviewed:
-    def test_marking_same_entry_twice_does_not_raise(self):
-        mark_as_reviewed("owner", "repo", 1, "sha")
+    async def test_marking_same_entry_twice_does_not_raise(self):
+        await mark_as_reviewed("owner", "repo", 1, "sha")
         # Second call should not raise due to INSERT OR IGNORE
-        mark_as_reviewed("owner", "repo", 1, "sha")
-        assert is_already_reviewed("owner", "repo", 1, "sha") is True
+        await mark_as_reviewed("owner", "repo", 1, "sha")
+        assert await is_already_reviewed("owner", "repo", 1, "sha") is True
 
-    def test_multiple_distinct_reviews_stored_independently(self):
-        mark_as_reviewed("owner", "repo", 1, "sha-1")
-        mark_as_reviewed("owner", "repo", 2, "sha-2")
-        mark_as_reviewed("owner", "repo-b", 1, "sha-1")
-        mark_as_reviewed("owner-x", "repo", 1, "sha-1")
+    async def test_multiple_distinct_reviews_stored_independently(self):
+        await mark_as_reviewed("owner", "repo", 1, "sha-1")
+        await mark_as_reviewed("owner", "repo", 2, "sha-2")
+        await mark_as_reviewed("owner", "repo-b", 1, "sha-1")
+        await mark_as_reviewed("owner-x", "repo", 1, "sha-1")
 
-        assert is_already_reviewed("owner", "repo", 1, "sha-1") is True
-        assert is_already_reviewed("owner", "repo", 2, "sha-2") is True
-        assert is_already_reviewed("owner", "repo-b", 1, "sha-1") is True
-        assert is_already_reviewed("owner-x", "repo", 1, "sha-1") is True
+        assert await is_already_reviewed("owner", "repo", 1, "sha-1") is True
+        assert await is_already_reviewed("owner", "repo", 2, "sha-2") is True
+        assert await is_already_reviewed("owner", "repo-b", 1, "sha-1") is True
+        assert await is_already_reviewed("owner-x", "repo", 1, "sha-1") is True
 
         # Cross-combinations that were never marked should still be False
-        assert is_already_reviewed("owner", "repo", 2, "sha-1") is False
-        assert is_already_reviewed("owner", "repo-b", 2, "sha-2") is False
+        assert await is_already_reviewed("owner", "repo", 2, "sha-1") is False
+        assert await is_already_reviewed("owner", "repo-b", 2, "sha-2") is False
 
-    def test_mark_creates_table_implicitly(self):
+    async def test_mark_creates_table_implicitly(self):
         # Verifies that calling mark before is works (table auto-created on first _conn()).
-        mark_as_reviewed("newowner", "newrepo", 99, "newsha")
-        assert is_already_reviewed("newowner", "newrepo", 99, "newsha") is True
+        await mark_as_reviewed("newowner", "newrepo", 99, "newsha")
+        assert await is_already_reviewed("newowner", "newrepo", 99, "newsha") is True

@@ -362,7 +362,7 @@ class TestProcessReview:
         before = self._counter_value(pr_reviews_total, "duplicate")
 
         with (
-            patch("agent.agent.is_already_reviewed", return_value=True),
+            patch("agent.agent.is_already_reviewed", new_callable=AsyncMock, return_value=True),
             patch("agent.agent.get_pr_details", new_callable=AsyncMock) as mock_details,
         ):
             await process_review("owner", "repo", 1, "sha", installation_id=99999)
@@ -377,7 +377,7 @@ class TestProcessReview:
         before = self._counter_value(pr_reviews_total, "skipped")
 
         with (
-            patch("agent.agent.is_already_reviewed", return_value=False),
+            patch("agent.agent.is_already_reviewed", new_callable=AsyncMock, return_value=False),
             patch("agent.agent.get_installation_token", new_callable=AsyncMock, return_value="fake-token"),
             patch(
                 "agent.agent.get_pr_details",
@@ -404,7 +404,7 @@ class TestProcessReview:
         fake_review = {**_empty_review(), "whats_good": ["Clean code"]}
 
         with (
-            patch("agent.agent.is_already_reviewed", return_value=False),
+            patch("agent.agent.is_already_reviewed", new_callable=AsyncMock, return_value=False),
             patch("agent.agent.get_installation_token", new_callable=AsyncMock, return_value="fake-token"),
             patch(
                 "agent.agent.get_pr_details",
@@ -415,7 +415,7 @@ class TestProcessReview:
             patch("agent.agent.parse_pr_files", return_value=[fake_diff]),
             patch("agent.agent.review_diff", new_callable=AsyncMock, return_value=fake_review),
             patch("agent.agent.post_pr_comment", new_callable=AsyncMock) as mock_comment,
-            patch("agent.agent.mark_as_reviewed") as mock_mark,
+            patch("agent.agent.mark_as_reviewed", new_callable=AsyncMock) as mock_mark,
         ):
             await process_review("owner", "repo", 5, "sha5", installation_id=99999)
 
@@ -438,7 +438,7 @@ class TestProcessReview:
         fake_diff = FileDiff(filename="main.py", patch="+ code", status="added", lines=1)
 
         with (
-            patch("agent.agent.is_already_reviewed", return_value=False),
+            patch("agent.agent.is_already_reviewed", new_callable=AsyncMock, return_value=False),
             patch("agent.agent.get_installation_token", new_callable=AsyncMock, return_value="fake-token"),
             patch(
                 "agent.agent.get_pr_details",
@@ -480,7 +480,7 @@ class TestProcessReview:
             return review_b
 
         with (
-            patch("agent.agent.is_already_reviewed", return_value=False),
+            patch("agent.agent.is_already_reviewed", new_callable=AsyncMock, return_value=False),
             patch("agent.agent.get_installation_token", new_callable=AsyncMock, return_value="fake-token"),
             patch(
                 "agent.agent.get_pr_details",
@@ -491,7 +491,7 @@ class TestProcessReview:
             patch("agent.agent.parse_pr_files", return_value=[diff_a, diff_b]),
             patch("agent.agent.review_diff", new_callable=AsyncMock, side_effect=review_side_effect),
             patch("agent.agent.post_pr_comment", new_callable=AsyncMock) as mock_comment,
-            patch("agent.agent.mark_as_reviewed"),
+            patch("agent.agent.mark_as_reviewed", new_callable=AsyncMock),
         ):
             await process_review("owner", "repo", 8, "sha8", installation_id=99999)
 
@@ -507,7 +507,7 @@ class TestProcessReview:
         before = self._counter_value(pr_reviews_total, "failed")
 
         with (
-            patch("agent.agent.is_already_reviewed", return_value=False),
+            patch("agent.agent.is_already_reviewed", new_callable=AsyncMock, return_value=False),
             patch("agent.agent.get_installation_token", new_callable=AsyncMock, return_value="fake-token"),
             patch(
                 "agent.agent.get_pr_details",
@@ -528,7 +528,7 @@ class TestProcessReview:
         before = review_queue_depth._value.get()
 
         with (
-            patch("agent.agent.is_already_reviewed", return_value=True),
+            patch("agent.agent.is_already_reviewed", new_callable=AsyncMock, return_value=True),
         ):
             await process_review("owner", "repo", 1, "sha", installation_id=99999)
 
@@ -539,7 +539,7 @@ class TestProcessReview:
         from agent.agent import trace_id
 
         with (
-            patch("agent.agent.is_already_reviewed", return_value=True),
+            patch("agent.agent.is_already_reviewed", new_callable=AsyncMock, return_value=True),
         ):
             await process_review("owner", "repo", 1, "sha", installation_id=99999, delivery_id="test-delivery-123")
 
@@ -549,7 +549,7 @@ class TestProcessReview:
         from agent.agent import trace_id
 
         with (
-            patch("agent.agent.is_already_reviewed", return_value=True),
+            patch("agent.agent.is_already_reviewed", new_callable=AsyncMock, return_value=True),
         ):
             await process_review("owner", "repo", 1, "sha", installation_id=99999)
 

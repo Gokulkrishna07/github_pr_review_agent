@@ -143,7 +143,7 @@ async def process_review(
     trace_id.set(delivery_id)
     review_queue_depth.dec()
 
-    if is_already_reviewed(owner, repo, pr_number, commit_sha):
+    if await is_already_reviewed(owner, repo, pr_number, commit_sha):
         logger.info("PR #%d (%s) already reviewed, skipping", pr_number, commit_sha[:7])
         pr_reviews_total.labels(status="duplicate").inc()
         return
@@ -203,7 +203,7 @@ async def process_review(
         body = _build_review_body(file_reviews, pr_details["title"], settings.groq_model)
         await post_pr_comment(owner, repo, pr_number, body, token)
 
-        mark_as_reviewed(owner, repo, pr_number, commit_sha)
+        await mark_as_reviewed(owner, repo, pr_number, commit_sha)
         pr_reviews_total.labels(status="success").inc()
         logger.info("PR #%d: review complete", pr_number)
 

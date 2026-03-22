@@ -31,6 +31,17 @@ class ReviewResponse(BaseModel):
 
 
 
+_shared_groq: AsyncGroq | None = None
+
+
+def _get_groq_client(api_key: str, timeout: int) -> AsyncGroq:
+    """Return a module-level shared AsyncGroq client, recreating if config changes."""
+    global _shared_groq
+    if _shared_groq is None:
+        _shared_groq = AsyncGroq(api_key=api_key, timeout=timeout)
+    return _shared_groq
+
+
 async def review_diff(
     filename: str,
     patch: str,
@@ -50,7 +61,7 @@ async def review_diff(
         file_content=file_content,
     )
 
-    client = AsyncGroq(api_key=api_key, timeout=timeout)
+    client = _get_groq_client(api_key, timeout)
     start = time.monotonic()
     try:
         chat_completion = await client.chat.completions.create(
