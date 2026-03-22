@@ -11,7 +11,7 @@ from .diff_parser import parse_pr_files
 from .github_client import get_file_content, get_pr_details, get_pr_files, post_pr_comment
 from .groq_client import review_diff
 from .idempotency import is_already_reviewed, mark_as_reviewed
-from .metrics import active_reviews, pr_review_duration_seconds, pr_reviews_total
+from .metrics import active_reviews, pr_review_duration_seconds, pr_reviews_total, review_queue_depth
 from .webhook_verify import verify_signature
 
 
@@ -106,6 +106,7 @@ async def webhook(
     logger.info(
         "Processing PR #%d (%s/%s) action=%s", pr_number, owner, repo_name, action
     )
+    review_queue_depth.inc()
     background_tasks.add_task(process_review, owner, repo_name, pr_number, commit_sha)
     return {"status": "processing", "pr": pr_number}
 
@@ -114,6 +115,8 @@ async def process_review(
     owner: str, repo: str, pr_number: int, commit_sha: str
 ) -> None:
     """Background task: fetch diff, review with LLM, post single summary comment."""
+    review_queue_depth.dec()
+
     if is_already_reviewed(owner, repo, pr_number, commit_sha):
         logger.info("PR #%d (%s) already reviewed, skipping", pr_number, commit_sha[:7])
         pr_reviews_total.labels(status="duplicate").inc()

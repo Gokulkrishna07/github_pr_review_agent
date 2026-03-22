@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from .metrics import files_skipped_total
+
 SKIP_EXTENSIONS = {
     ".lock", ".sum", ".mod", ".min.js", ".min.css",
     ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg",
@@ -26,18 +28,22 @@ def parse_pr_files(files: list[dict], max_diff_lines: int) -> list[FileDiff]:
 
         # Skip removed files
         if status == "removed":
+            files_skipped_total.labels(reason="removed").inc()
             continue
 
         # Skip binary files (no patch)
         if not patch:
+            files_skipped_total.labels(reason="no_patch").inc()
             continue
 
         # Skip by extension
         if any(filename.endswith(ext) for ext in SKIP_EXTENSIONS):
+            files_skipped_total.labels(reason="extension").inc()
             continue
 
         line_count = patch.count("\n") + 1
         if line_count > max_diff_lines:
+            files_skipped_total.labels(reason="too_large").inc()
             continue
 
         results.append(FileDiff(
