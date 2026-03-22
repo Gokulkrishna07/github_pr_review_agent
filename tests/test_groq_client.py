@@ -177,13 +177,17 @@ class TestEmptyReview:
 
 
 class TestReviewDiff:
-    def _make_mock_completion(self, content: str):
+    def _make_mock_completion(self, content: str, prompt_tokens: int = 100, completion_tokens: int = 50):
         message = MagicMock()
         message.content = content
         choice = MagicMock()
         choice.message = message
+        usage = MagicMock()
+        usage.prompt_tokens = prompt_tokens
+        usage.completion_tokens = completion_tokens
         completion = MagicMock()
         completion.choices = [choice]
+        completion.usage = usage
         return completion
 
     async def test_success_returns_parsed_result_and_increments_metric(self, mocker):
@@ -205,6 +209,8 @@ class TestReviewDiff:
         mock_metric = mocker.patch("agent.groq_client.groq_requests_total")
         mock_labels = MagicMock()
         mock_metric.labels.return_value = mock_labels
+        mocker.patch("agent.groq_client.groq_request_duration_seconds")
+        mocker.patch("agent.groq_client.llm_tokens_used_total")
 
         with patch("agent.groq_client.AsyncGroq", return_value=mock_client_instance):
             result = await review_diff(
@@ -232,6 +238,8 @@ class TestReviewDiff:
         mock_metric = mocker.patch("agent.groq_client.groq_requests_total")
         mock_labels = MagicMock()
         mock_metric.labels.return_value = mock_labels
+        mocker.patch("agent.groq_client.groq_request_duration_seconds")
+        mocker.patch("agent.groq_client.llm_tokens_used_total")
 
         with patch("agent.groq_client.AsyncGroq", return_value=mock_client_instance):
             with pytest.raises(RuntimeError, match="Groq API unavailable"):
@@ -257,6 +265,8 @@ class TestReviewDiff:
         mock_client_instance.chat.completions.create = mock_create
 
         mocker.patch("agent.groq_client.groq_requests_total")
+        mocker.patch("agent.groq_client.groq_request_duration_seconds")
+        mocker.patch("agent.groq_client.llm_tokens_used_total")
 
         with patch("agent.groq_client.AsyncGroq", return_value=mock_client_instance):
             result = await review_diff(
@@ -283,6 +293,8 @@ class TestReviewDiff:
         mock_client_instance.chat.completions.create = mock_create
 
         mocker.patch("agent.groq_client.groq_requests_total")
+        mocker.patch("agent.groq_client.groq_request_duration_seconds")
+        mocker.patch("agent.groq_client.llm_tokens_used_total")
 
         file_content = "def existing_function():\n    return True\n"
         with patch("agent.groq_client.AsyncGroq", return_value=mock_client_instance):
@@ -310,6 +322,8 @@ class TestReviewDiff:
         mock_client_instance.chat.completions.create = mock_create
 
         mocker.patch("agent.groq_client.groq_requests_total")
+        mocker.patch("agent.groq_client.groq_request_duration_seconds")
+        mocker.patch("agent.groq_client.llm_tokens_used_total")
 
         with patch("agent.groq_client.AsyncGroq", return_value=mock_client_instance):
             await review_diff(
@@ -325,3 +339,92 @@ class TestReviewDiff:
 
         prompt_used = mock_create.call_args[1]["messages"][0]["content"]
         assert "Full file content for context:" not in prompt_used
+
+    async def test_groq_duration_metric_observed_on_success(self, mocker):
+        response_data = {"whats_good": [], "critical": [], "major": [], "minor": [], "nit": []}
+        mock_completion = self._make_mock_completion(json.dumps(response_data))
+
+        mock_create = AsyncMock(return_value=mock_completion)
+        mock_client_instance = MagicMock()
+        mock_client_instance.chat.completions.create = mock_create
+
+        mocker.patch("agent.groq_client.groq_requests_total")
+        mock_duration = mocker.patch("agent.groq_client.groq_request_duration_seconds")
+        mocker.patch("agent.groq_client.llm_tokens_used_total")
+
+        with patch("agent.groq_client.AsyncGroq", return_value=mock_client_instance):
+            await review_diff(
+                "main.py", "+ line", pr_title="T", pr_description="",
+                api_key="key", model="model", timeout=10,
+            )
+
+        mock_duration.observe.assert_called_once()
+        assert mock_duration.observe.call_args[0][0] >= 0
+
+    async def test_groq_duration_metric_observed_on_error(self, mocker):
+        mock_client_instance = MagicMock()
+        mock_client_instance.chat.completions.create = AsyncMock(
+            side_effect=RuntimeError("fail")
+        )
+
+        mocker.patch("agent.groq_client.groq_requests_total")
+        mock_duration = mocker.patch("agent.groq_client.groq_request_duration_seconds")
+        mocker.patch("agent.groq_client.llm_tokens_used_total")
+
+        with patch("agent.groq_client.AsyncGroq", return_value=mock_client_instance):
+            with pytest.raises(RuntimeError):
+                await review_diff(
+                    "main.py", "+ line", pr_title="T", pr_description="",
+                    api_key="key", model="model", timeout=10,
+                )
+
+        mock_duration.observe.assert_called_once()
+
+    async def test_llm_token_usage_tracked(self, mocker):
+        response_data = {"whats_good": [], "critical": [], "major": [], "minor": [], "nit": []}
+        mock_completion = self._make_mock_completion(
+            json.dumps(response_data), prompt_tokens=150, completion_tokens=75
+        )
+
+        mock_create = AsyncMock(return_value=mock_completion)
+        mock_client_instance = MagicMock()
+        mock_client_instance.chat.completions.create = mock_create
+
+        mocker.patch("agent.groq_client.groq_requests_total")
+        mocker.patch("agent.groq_client.groq_request_duration_seconds")
+        mock_tokens = mocker.patch("agent.groq_client.llm_tokens_used_total")
+        mock_token_labels = MagicMock()
+        mock_tokens.labels.return_value = mock_token_labels
+
+        with patch("agent.groq_client.AsyncGroq", return_value=mock_client_instance):
+            await review_diff(
+                "main.py", "+ line", pr_title="T", pr_description="",
+                api_key="key", model="model", timeout=10,
+            )
+
+        calls = mock_tokens.labels.call_args_list
+        assert any(c == ((), {"type": "prompt"}) for c in calls)
+        assert any(c == ((), {"type": "completion"}) for c in calls)
+
+    async def test_no_usage_attr_does_not_crash(self, mocker):
+        """When completion has no usage attribute, token tracking is skipped."""
+        response_data = {"whats_good": [], "critical": [], "major": [], "minor": [], "nit": []}
+        mock_completion = self._make_mock_completion(json.dumps(response_data))
+        mock_completion.usage = None
+
+        mock_create = AsyncMock(return_value=mock_completion)
+        mock_client_instance = MagicMock()
+        mock_client_instance.chat.completions.create = mock_create
+
+        mocker.patch("agent.groq_client.groq_requests_total")
+        mocker.patch("agent.groq_client.groq_request_duration_seconds")
+        mock_tokens = mocker.patch("agent.groq_client.llm_tokens_used_total")
+
+        with patch("agent.groq_client.AsyncGroq", return_value=mock_client_instance):
+            result = await review_diff(
+                "main.py", "+ line", pr_title="T", pr_description="",
+                api_key="key", model="model", timeout=10,
+            )
+
+        mock_tokens.labels.assert_not_called()
+        assert result == _empty_review()

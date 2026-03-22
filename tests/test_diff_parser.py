@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from agent.diff_parser import FileDiff, parse_pr_files, SKIP_EXTENSIONS
@@ -126,3 +128,59 @@ class TestMultipleFiles:
         result = parse_pr_files(files, max_diff_lines=500)
         assert len(result) == 1
         assert result[0].filename == ""
+
+
+class TestFilesSkippedMetric:
+    def test_removed_file_increments_removed_counter(self):
+        mock_metric = MagicMock()
+        mock_labels = MagicMock()
+        mock_metric.labels.return_value = mock_labels
+
+        with patch("agent.diff_parser.files_skipped_total", mock_metric):
+            parse_pr_files([_make_file(status="removed")], max_diff_lines=500)
+
+        mock_metric.labels.assert_called_with(reason="removed")
+        mock_labels.inc.assert_called_once()
+
+    def test_no_patch_increments_no_patch_counter(self):
+        mock_metric = MagicMock()
+        mock_labels = MagicMock()
+        mock_metric.labels.return_value = mock_labels
+
+        with patch("agent.diff_parser.files_skipped_total", mock_metric):
+            parse_pr_files([{"filename": "img.png", "patch": None, "status": "added"}], max_diff_lines=500)
+
+        mock_metric.labels.assert_called_with(reason="no_patch")
+        mock_labels.inc.assert_called_once()
+
+    def test_skip_extension_increments_extension_counter(self):
+        mock_metric = MagicMock()
+        mock_labels = MagicMock()
+        mock_metric.labels.return_value = mock_labels
+
+        with patch("agent.diff_parser.files_skipped_total", mock_metric):
+            parse_pr_files([_make_file(filename="data.lock")], max_diff_lines=500)
+
+        mock_metric.labels.assert_called_with(reason="extension")
+        mock_labels.inc.assert_called_once()
+
+    def test_too_large_increments_too_large_counter(self):
+        mock_metric = MagicMock()
+        mock_labels = MagicMock()
+        mock_metric.labels.return_value = mock_labels
+
+        large_patch = "\n".join([f"+ line {i}" for i in range(20)])
+        with patch("agent.diff_parser.files_skipped_total", mock_metric):
+            parse_pr_files([_make_file(patch=large_patch)], max_diff_lines=5)
+
+        mock_metric.labels.assert_called_with(reason="too_large")
+        mock_labels.inc.assert_called_once()
+
+    def test_valid_file_does_not_increment_any_skip_counter(self):
+        mock_metric = MagicMock()
+
+        with patch("agent.diff_parser.files_skipped_total", mock_metric):
+            result = parse_pr_files([_make_file()], max_diff_lines=500)
+
+        assert len(result) == 1
+        mock_metric.labels.assert_not_called()

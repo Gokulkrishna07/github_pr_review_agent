@@ -483,3 +483,16 @@ class TestProcessReview:
         mock_comment.assert_not_called()
         after = self._counter_value(pr_reviews_total, "failed")
         assert after == before + 1
+
+    async def test_process_review_decrements_queue_depth(self):
+        from agent.metrics import review_queue_depth
+
+        before = review_queue_depth._value.get()
+
+        with (
+            patch("agent.agent.is_already_reviewed", return_value=True),
+        ):
+            await process_review("owner", "repo", 1, "sha")
+
+        after = review_queue_depth._value.get()
+        assert after == before - 1

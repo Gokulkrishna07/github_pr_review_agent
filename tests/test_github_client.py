@@ -316,3 +316,81 @@ class TestRequestWithRetry:
                 result = await _request_with_retry(client, "GET", "http://example.com", token="tok")
 
         assert result.status_code == 429
+
+    async def test_duration_metric_observed_on_success(self):
+        fake_resp = _fake_response(200, {})
+        mock_duration = MagicMock()
+        mock_duration_labels = MagicMock()
+        mock_duration.labels.return_value = mock_duration_labels
+
+        async with httpx.AsyncClient() as client:
+            with (
+                patch.object(client, "request", new_callable=AsyncMock, return_value=fake_resp),
+                patch("agent.github_client.github_request_duration_seconds", mock_duration),
+            ):
+                await _request_with_retry(client, "GET", "http://example.com", token="tok", endpoint="pr_details")
+
+        mock_duration.labels.assert_called_with(endpoint="pr_details")
+        mock_duration_labels.observe.assert_called_once()
+        assert mock_duration_labels.observe.call_args[0][0] >= 0
+
+    async def test_duration_metric_observed_even_on_non_retryable_error(self):
+        fake_resp = _fake_response(404, {})
+        mock_duration = MagicMock()
+        mock_duration_labels = MagicMock()
+        mock_duration.labels.return_value = mock_duration_labels
+
+        async with httpx.AsyncClient() as client:
+            with (
+                patch.object(client, "request", new_callable=AsyncMock, return_value=fake_resp),
+                patch("agent.github_client.github_request_duration_seconds", mock_duration),
+            ):
+                await _request_with_retry(client, "GET", "http://example.com", token="tok", endpoint="file_content")
+
+        mock_duration.labels.assert_called_with(endpoint="file_content")
+        mock_duration_labels.observe.assert_called_once()
+
+    async def test_retry_attempts_counter_incremented_on_retry(self):
+        error_resp = _fake_response(500, {})
+        success_resp = _fake_response(200, {})
+        mock_retry = MagicMock()
+
+        async with httpx.AsyncClient() as client:
+            with (
+                patch.object(client, "request", new_callable=AsyncMock, side_effect=[error_resp, success_resp]),
+                patch("asyncio.sleep", new_callable=AsyncMock),
+                patch("agent.github_client.retry_attempts_total", mock_retry),
+            ):
+                result = await _request_with_retry(client, "GET", "http://example.com", token="tok")
+
+        assert result.status_code == 200
+        mock_retry.inc.assert_called_once()
+
+    async def test_retry_attempts_counter_incremented_per_retry(self):
+        error_resp = _fake_response(502, {})
+        success_resp = _fake_response(200, {})
+        mock_retry = MagicMock()
+
+        async with httpx.AsyncClient() as client:
+            with (
+                patch.object(client, "request", new_callable=AsyncMock, side_effect=[error_resp, error_resp, success_resp]),
+                patch("asyncio.sleep", new_callable=AsyncMock),
+                patch("agent.github_client.retry_attempts_total", mock_retry),
+            ):
+                result = await _request_with_retry(client, "GET", "http://example.com", token="tok")
+
+        assert result.status_code == 200
+        assert mock_retry.inc.call_count == 2
+
+    async def test_no_retry_does_not_increment_retry_counter(self):
+        fake_resp = _fake_response(200, {})
+        mock_retry = MagicMock()
+
+        async with httpx.AsyncClient() as client:
+            with (
+                patch.object(client, "request", new_callable=AsyncMock, return_value=fake_resp),
+                patch("agent.github_client.retry_attempts_total", mock_retry),
+            ):
+                await _request_with_retry(client, "GET", "http://example.com", token="tok")
+
+        mock_retry.inc.assert_not_called()

@@ -1,10 +1,11 @@
 import json
 import logging
 import re
+import time
 
 from groq import AsyncGroq
 
-from .metrics import groq_requests_total
+from .metrics import groq_request_duration_seconds, groq_requests_total, llm_tokens_used_total
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,7 @@ async def review_diff(
     )
 
     client = AsyncGroq(api_key=api_key, timeout=timeout)
+    start = time.monotonic()
     try:
         chat_completion = await client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
@@ -91,6 +93,17 @@ async def review_diff(
     except Exception:
         groq_requests_total.labels(status="error").inc()
         raise
+    finally:
+        groq_request_duration_seconds.observe(time.monotonic() - start)
+
+    usage = getattr(chat_completion, "usage", None)
+    if usage:
+        prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+        completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+        if prompt_tokens:
+            llm_tokens_used_total.labels(type="prompt").inc(prompt_tokens)
+        if completion_tokens:
+            llm_tokens_used_total.labels(type="completion").inc(completion_tokens)
 
     text = chat_completion.choices[0].message.content or ""
     return _parse_response(text)

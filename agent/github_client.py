@@ -1,8 +1,11 @@
 import asyncio
 import base64
 import logging
+import time
 
 import httpx
+
+from .metrics import github_request_duration_seconds, retry_attempts_total
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +27,7 @@ async def get_pr_details(owner: str, repo: str, pr_number: int, token: str) -> d
     """Fetch PR title and description."""
     url = f"{BASE}/repos/{owner}/{repo}/pulls/{pr_number}"
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await _request_with_retry(client, "GET", url, token=token)
+        resp = await _request_with_retry(client, "GET", url, token=token, endpoint="pr_details")
         resp.raise_for_status()
         data = resp.json()
         return {
@@ -45,6 +48,7 @@ async def get_pr_files(
             resp = await _request_with_retry(
                 client, "GET", url, token=token,
                 params={"per_page": PAGE_SIZE, "page": page},
+                endpoint="pr_files",
             )
             resp.raise_for_status()
             page_data = resp.json()
@@ -62,7 +66,8 @@ async def get_file_content(
     url = f"{BASE}/repos/{owner}/{repo}/contents/{path}"
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await _request_with_retry(
-            client, "GET", url, token=token, params={"ref": commit_sha}
+            client, "GET", url, token=token, params={"ref": commit_sha},
+            endpoint="file_content",
         )
         if resp.status_code != 200:
             logger.warning("Could not fetch content for %s (status %d)", path, resp.status_code)
@@ -84,7 +89,8 @@ async def post_pr_comment(
     url = f"{BASE}/repos/{owner}/{repo}/issues/{pr_number}/comments"
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await _request_with_retry(
-            client, "POST", url, token=token, json={"body": body}
+            client, "POST", url, token=token, json={"body": body},
+            endpoint="post_comment",
         )
         resp.raise_for_status()
     logger.info("Posted review comment on PR #%d", pr_number)
@@ -98,16 +104,24 @@ async def _request_with_retry(
     token: str,
     json: dict | None = None,
     params: dict | None = None,
+    endpoint: str = "unknown",
 ) -> httpx.Response:
     """Retry on rate-limit and transient server errors with exponential backoff."""
-    for attempt in range(MAX_RETRIES):
-        resp = await client.request(
-            method, url, headers=_headers(token), json=json, params=params
-        )
-        if resp.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES - 1:
-            wait = 2 ** (attempt + 1)
-            logger.warning("GitHub API error (%d), retrying in %ds...", resp.status_code, wait)
-            await asyncio.sleep(wait)
-            continue
+    start = time.monotonic()
+    try:
+        for attempt in range(MAX_RETRIES):
+            resp = await client.request(
+                method, url, headers=_headers(token), json=json, params=params
+            )
+            if resp.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES - 1:
+                retry_attempts_total.inc()
+                wait = 2 ** (attempt + 1)
+                logger.warning("GitHub API error (%d), retrying in %ds...", resp.status_code, wait)
+                await asyncio.sleep(wait)
+                continue
+            return resp
         return resp
-    return resp
+    finally:
+        github_request_duration_seconds.labels(endpoint=endpoint).observe(
+            time.monotonic() - start
+        )
