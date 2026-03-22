@@ -13,6 +13,7 @@ from .diff_parser import parse_pr_files
 from .github_client import get_file_content, get_pr_details, get_pr_files, post_pr_comment
 from .groq_client import review_diff
 from .idempotency import is_already_reviewed, mark_as_reviewed
+from .types import FileReview
 from .metrics import active_reviews, pr_review_duration_seconds, pr_reviews_total, review_queue_depth
 from .webhook_verify import verify_signature
 
@@ -192,7 +193,7 @@ async def process_review(
 
 
 def _build_review_body(
-    file_reviews: list[tuple[str, dict]], pr_title: str, model: str
+    file_reviews: list[tuple[str, FileReview]], pr_title: str, model: str
 ) -> str:
     all_good: list[str] = []
     all_critical: list[str] = []
