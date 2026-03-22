@@ -3,7 +3,8 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    gh_token: str
+    github_app_id: str
+    github_app_private_key: str
     gh_webhook_secret: str
     groq_api_key: str
     groq_model: str = "llama-3.3-70b-versatile"
@@ -12,16 +13,20 @@ class Settings(BaseSettings):
     max_diff_lines: int = 500
     idempotency_db_path: str = "/app/data/reviews.db"
 
-    @field_validator("gh_token")
+    @field_validator("github_app_id")
     @classmethod
-    def gh_token_must_be_valid(cls, v: str) -> str:
+    def app_id_not_empty(cls, v: str) -> str:
         if not v or not v.strip():
-            raise ValueError("GH_TOKEN must not be empty")
-        valid_prefixes = ("ghp_", "ghs_", "gho_", "github_pat_")
-        if not v.startswith(valid_prefixes):
-            raise ValueError(
-                f"GH_TOKEN must start with one of {valid_prefixes}"
-            )
+            raise ValueError("GITHUB_APP_ID must not be empty")
+        return v.strip()
+
+    @field_validator("github_app_private_key")
+    @classmethod
+    def private_key_must_be_valid(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("GITHUB_APP_PRIVATE_KEY must not be empty")
+        if "PRIVATE KEY" not in v:
+            raise ValueError("GITHUB_APP_PRIVATE_KEY must contain a valid PEM private key")
         return v
 
     @field_validator("gh_webhook_secret")
