@@ -1,17 +1,17 @@
 # GitHub PR Code Review Agent
 
-AI-powered code review agent that automatically reviews pull requests using a locally-hosted LLM (Ollama + qwen2.5-coder:7b).
+AI-powered code review agent that automatically reviews pull requests using Groq LLM (llama-3.3-70b-versatile).
 
 ## Architecture
 
 ```
-GitHub Webhook → FastAPI Agent → Ollama LLM → GitHub Review Comments
+GitHub Webhook → FastAPI Agent → Groq LLM → GitHub Review Comments
 ```
 
 - **Webhook handler** receives PR events, verifies HMAC signature
 - **Diff parser** extracts and filters changed files
-- **Ollama client** sends diffs for review with structured JSON output
-- **GitHub client** posts inline review comments back to the PR
+- **Groq client** sends diffs for review with structured JSON output
+- **GitHub client** posts review comments back to the PR
 
 ## Prerequisites
 
