@@ -1,7 +1,9 @@
 import asyncio
+import contextvars
 import json
 import logging
 import time
+import uuid
 
 from fastapi import BackgroundTasks, FastAPI, Header, Request, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -14,6 +16,8 @@ from .idempotency import is_already_reviewed, mark_as_reviewed
 from .metrics import active_reviews, pr_review_duration_seconds, pr_reviews_total, review_queue_depth
 from .webhook_verify import verify_signature
 
+trace_id: contextvars.ContextVar[str] = contextvars.ContextVar("trace_id", default="-")
+
 
 class _JSONFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -21,6 +25,7 @@ class _JSONFormatter(logging.Formatter):
             "timestamp": self.formatTime(record),
             "level": record.levelname,
             "logger": record.name,
+            "trace_id": trace_id.get(),
             "message": record.getMessage(),
         }
         if record.exc_info:
@@ -64,7 +69,11 @@ async def webhook(
     background_tasks: BackgroundTasks,
     x_hub_signature_256: str = Header(default=""),
     x_github_event: str = Header(default=""),
+    x_github_delivery: str = Header(default=""),
 ):
+    delivery_id = x_github_delivery or str(uuid.uuid4())
+    trace_id.set(delivery_id)
+
     body = await request.body()
 
     if len(body) > 25 * 1024 * 1024:
@@ -107,14 +116,15 @@ async def webhook(
         "Processing PR #%d (%s/%s) action=%s", pr_number, owner, repo_name, action
     )
     review_queue_depth.inc()
-    background_tasks.add_task(process_review, owner, repo_name, pr_number, commit_sha)
+    background_tasks.add_task(process_review, owner, repo_name, pr_number, commit_sha, delivery_id)
     return {"status": "processing", "pr": pr_number}
 
 
 async def process_review(
-    owner: str, repo: str, pr_number: int, commit_sha: str
+    owner: str, repo: str, pr_number: int, commit_sha: str, delivery_id: str = "-"
 ) -> None:
     """Background task: fetch diff, review with LLM, post single summary comment."""
+    trace_id.set(delivery_id)
     review_queue_depth.dec()
 
     if is_already_reviewed(owner, repo, pr_number, commit_sha):
