@@ -11,6 +11,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from .config import settings
 from .diff_parser import parse_pr_files
 from .exceptions import AgentError, GroqAPIError
+from .github_app import get_installation_token
 from .github_client import get_file_content, get_pr_details, get_pr_files, post_pr_comment
 from .groq_client import review_diff
 from .idempotency import is_already_reviewed, mark_as_reviewed
@@ -120,6 +121,7 @@ async def webhook(
         repo_name = repo["name"]
         pr_number = pr["number"]
         commit_sha = pr["head"]["sha"]
+        installation_id = payload["installation"]["id"]
     except (KeyError, Exception):
         return Response(status_code=400, content="Malformed payload")
 
@@ -127,12 +129,15 @@ async def webhook(
         "Processing PR #%d (%s/%s) action=%s", pr_number, owner, repo_name, action
     )
     review_queue_depth.inc()
-    background_tasks.add_task(process_review, owner, repo_name, pr_number, commit_sha, delivery_id)
+    background_tasks.add_task(
+        process_review, owner, repo_name, pr_number, commit_sha, installation_id, delivery_id
+    )
     return {"status": "processing", "pr": pr_number}
 
 
 async def process_review(
-    owner: str, repo: str, pr_number: int, commit_sha: str, delivery_id: str = "-"
+    owner: str, repo: str, pr_number: int, commit_sha: str,
+    installation_id: int, delivery_id: str = "-",
 ) -> None:
     """Background task: fetch diff, review with LLM, post single summary comment."""
     trace_id.set(delivery_id)
@@ -147,8 +152,12 @@ async def process_review(
     start = time.monotonic()
 
     try:
-        pr_details = await get_pr_details(owner, repo, pr_number, settings.gh_token)
-        files = await get_pr_files(owner, repo, pr_number, settings.gh_token)
+        token = await get_installation_token(
+            settings.github_app_id, settings.github_app_private_key, installation_id
+        )
+
+        pr_details = await get_pr_details(owner, repo, pr_number, token)
+        files = await get_pr_files(owner, repo, pr_number, token)
         diffs = parse_pr_files(files, settings.max_diff_lines)
 
         if not diffs:
@@ -161,7 +170,7 @@ async def process_review(
         async def review_one(diff):
             async with _semaphore:
                 file_content = await get_file_content(
-                    owner, repo, diff.filename, commit_sha, settings.gh_token
+                    owner, repo, diff.filename, commit_sha, token
                 )
                 return diff.filename, await review_diff(
                     diff.filename,
@@ -192,7 +201,7 @@ async def process_review(
             return
 
         body = _build_review_body(file_reviews, pr_details["title"], settings.groq_model)
-        await post_pr_comment(owner, repo, pr_number, body, settings.gh_token)
+        await post_pr_comment(owner, repo, pr_number, body, token)
 
         mark_as_reviewed(owner, repo, pr_number, commit_sha)
         pr_reviews_total.labels(status="success").inc()

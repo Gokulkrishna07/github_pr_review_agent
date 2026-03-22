@@ -35,7 +35,9 @@ GitHub webhook POST /webhook
   → HMAC signature verification (webhook_verify.py)
   → Rate limiting (in-memory per-IP, 60 req/min)
   → Idempotency check per (owner, repo, pr, commit_sha) in SQLite (idempotency.py)
+  → Extract installation_id from payload
   → Background task: process_review()
+      → Get installation token via GitHub App JWT auth (github_app.py)
       → Fetch PR details + file list via GitHub API (github_client.py)
       → Parse/filter diffs (diff_parser.py) respecting max_diff_lines
       → For each file (up to 3 concurrent via asyncio.Semaphore):
@@ -46,7 +48,9 @@ GitHub webhook POST /webhook
 
 **LLM integration**: Uses Groq cloud API (not local Ollama despite .env.example references — the code uses `groq` SDK). Model default: `llama-3.3-70b-versatile`. Response is structured JSON with severity categories: critical, major, minor, nit, whats_good.
 
-**Config**: `agent/config.py` — pydantic-settings `BaseSettings` loading from env vars / `.env` file. Key vars: `GH_TOKEN`, `GH_WEBHOOK_SECRET`, `GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_TIMEOUT`, `MAX_DIFF_LINES`.
+**Auth**: GitHub App authentication (`agent/github_app.py`). JWT signed with App private key → exchanged for per-installation access tokens (auto-cached, refreshed before expiry). Comments appear as the bot, not a personal account. Installation ID extracted from webhook payload at runtime — supports multi-account installs.
+
+**Config**: `agent/config.py` — pydantic-settings `BaseSettings` loading from env vars / `.env` file. Key vars: `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GH_WEBHOOK_SECRET`, `GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_TIMEOUT`, `MAX_DIFF_LINES`.
 
 **Metrics**: Prometheus metrics exposed at `/metrics` (restricted to private IPs). Counters for review status and Groq request outcomes, gauge for active reviews, histogram for review duration.
 

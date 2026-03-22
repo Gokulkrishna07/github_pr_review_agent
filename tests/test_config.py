@@ -3,11 +3,14 @@ from pydantic import ValidationError
 
 from agent.config import Settings
 
+_TEST_PEM = "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"
+
 
 def _valid_env(**overrides) -> dict:
     """Return a minimal valid settings dict, with optional overrides."""
     base = {
-        "gh_token": "ghp_validtoken1234567890",
+        "github_app_id": "123456",
+        "github_app_private_key": _TEST_PEM,
         "gh_webhook_secret": "my-secret",
         "groq_api_key": "gsk_testapikey",
     }
@@ -15,34 +18,40 @@ def _valid_env(**overrides) -> dict:
     return base
 
 
-class TestGhTokenValidation:
-    def test_valid_ghp_prefix_accepted(self):
-        s = Settings(**_valid_env(gh_token="ghp_abc123"))
-        assert s.gh_token == "ghp_abc123"
+class TestGitHubAppIdValidation:
+    def test_valid_id_accepted(self):
+        s = Settings(**_valid_env(github_app_id="3155675"))
+        assert s.github_app_id == "3155675"
 
-    def test_valid_ghs_prefix_accepted(self):
-        s = Settings(**_valid_env(gh_token="ghs_abc123"))
-        assert s.gh_token == "ghs_abc123"
+    def test_empty_id_rejected(self):
+        with pytest.raises(ValidationError, match="GITHUB_APP_ID must not be empty"):
+            Settings(**_valid_env(github_app_id=""))
 
-    def test_valid_gho_prefix_accepted(self):
-        s = Settings(**_valid_env(gh_token="gho_abc123"))
-        assert s.gh_token == "gho_abc123"
+    def test_whitespace_only_rejected(self):
+        with pytest.raises(ValidationError, match="GITHUB_APP_ID must not be empty"):
+            Settings(**_valid_env(github_app_id="   "))
 
-    def test_valid_github_pat_prefix_accepted(self):
-        s = Settings(**_valid_env(gh_token="github_pat_abc123"))
-        assert s.gh_token == "github_pat_abc123"
+    def test_strips_whitespace(self):
+        s = Settings(**_valid_env(github_app_id="  123  "))
+        assert s.github_app_id == "123"
 
-    def test_empty_token_rejected(self):
-        with pytest.raises(ValidationError, match="GH_TOKEN must not be empty"):
-            Settings(**_valid_env(gh_token=""))
 
-    def test_whitespace_only_token_rejected(self):
-        with pytest.raises(ValidationError, match="GH_TOKEN must not be empty"):
-            Settings(**_valid_env(gh_token="   "))
+class TestGitHubAppPrivateKeyValidation:
+    def test_valid_pem_accepted(self):
+        s = Settings(**_valid_env(github_app_private_key=_TEST_PEM))
+        assert "PRIVATE KEY" in s.github_app_private_key
 
-    def test_invalid_prefix_rejected(self):
-        with pytest.raises(ValidationError, match="GH_TOKEN must start with"):
-            Settings(**_valid_env(gh_token="invalid-token"))
+    def test_empty_key_rejected(self):
+        with pytest.raises(ValidationError, match="GITHUB_APP_PRIVATE_KEY must not be empty"):
+            Settings(**_valid_env(github_app_private_key=""))
+
+    def test_whitespace_only_rejected(self):
+        with pytest.raises(ValidationError, match="GITHUB_APP_PRIVATE_KEY must not be empty"):
+            Settings(**_valid_env(github_app_private_key="   "))
+
+    def test_invalid_pem_rejected(self):
+        with pytest.raises(ValidationError, match="valid PEM private key"):
+            Settings(**_valid_env(github_app_private_key="not-a-pem-key"))
 
 
 class TestWebhookSecretValidation:
