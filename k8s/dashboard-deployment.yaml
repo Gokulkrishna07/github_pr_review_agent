@@ -31,6 +31,11 @@ spec:
           env:
             - name: API_BASE_URL
               value: "http://review-agent.ai-reviewer.svc.cluster.local"
+            - name: PUBLIC_API_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secret
+                  key: PUBLIC_API_BASE_URL
           resources:
             requests:
               memory: 128Mi

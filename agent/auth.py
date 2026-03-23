@@ -135,7 +135,12 @@ async def github_callback(request: Request, code: str = "", state: str = ""):
 
     session_token = _create_session_token(user["id"], github_id, github_login)
 
+    # Redirect to dashboard with session token as query param for Streamlit,
+    # and also set cookie for API calls from the browser.
     redirect_url = settings.frontend_url or "/"
+    separator = "&" if "?" in redirect_url else "?"
+    redirect_url = f"{redirect_url}{separator}session={session_token}"
+
     response = RedirectResponse(url=redirect_url, status_code=302)
     response.set_cookie(
         "session", session_token,

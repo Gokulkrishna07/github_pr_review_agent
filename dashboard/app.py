@@ -7,7 +7,10 @@ import os
 import httpx
 import streamlit as st
 
+# Internal URL for server-side API calls (pod-to-pod inside k8s)
 API_BASE = os.environ.get("API_BASE_URL", "http://localhost:8000")
+# Public URL for browser redirects (OAuth login, etc.)
+PUBLIC_API_BASE = os.environ.get("PUBLIC_API_BASE_URL", API_BASE)
 
 # ---------------------------------------------------------------------------
 # Session helpers
@@ -69,7 +72,7 @@ def login_page():
     with col2:
         st.link_button(
             "Sign in with GitHub",
-            f"{API_BASE}/auth/github",
+            f"{PUBLIC_API_BASE}/auth/github",
             use_container_width=True,
         )
 
