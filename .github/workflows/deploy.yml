@@ -44,8 +44,8 @@ jobs:
             cd ~/Code_review_agent
             git pull origin main
 
-            # Build agent image
-            docker build -t review-agent:latest ./agent
+            # Build agent image (context is repo root, Dockerfile in agent/)
+            docker build -t review-agent:latest -f agent/Dockerfile .
 
             # Import into k3s containerd
             docker save review-agent:latest | sudo k3s ctr images import -
