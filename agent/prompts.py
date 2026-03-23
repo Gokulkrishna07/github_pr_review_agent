@@ -1,6 +1,12 @@
 """Prompt templates for LLM code review, extracted for testability and configurability."""
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 FULL_FILE_MAX_LINES = 500
+
+REQUIRED_PLACEHOLDERS = {"{filename}", "{patch}", "{pr_title}", "{pr_description}", "{file_content_section}"}
 
 REVIEW_TEMPLATE = """\
 You are a senior code reviewer. Analyze the following changes and return a JSON object with categorized review feedback.
@@ -72,6 +78,44 @@ def build_review_prompt(
     file_content_section = _build_file_content_section(file_content)
 
     return REVIEW_TEMPLATE.format(
+        filename=filename,
+        patch=patch,
+        pr_title=pr_title,
+        pr_description=description_section,
+        file_content_section=file_content_section,
+    )
+
+
+def _validate_custom_template(template: str) -> bool:
+    """Check that a custom template contains all required placeholders."""
+    return all(p in template for p in REQUIRED_PLACEHOLDERS)
+
+
+def build_review_prompt_with_config(
+    filename: str,
+    patch: str,
+    *,
+    pr_title: str,
+    pr_description: str,
+    file_content: str | None = None,
+    custom_template: str | None = None,
+) -> str:
+    """Build review prompt, using custom_template if valid, else falling back to default."""
+    pr_title = _sanitize_input(pr_title, 200)
+    pr_description = _sanitize_input(pr_description, 2000)
+    description_section = f"PR description: {pr_description}" if pr_description.strip() else ""
+    file_content_section = _build_file_content_section(file_content)
+
+    template = REVIEW_TEMPLATE
+    if custom_template and _validate_custom_template(custom_template):
+        template = custom_template
+    elif custom_template:
+        logger.warning(
+            "Custom template missing required placeholders, using default. "
+            "Required: %s", REQUIRED_PLACEHOLDERS
+        )
+
+    return template.format(
         filename=filename,
         patch=patch,
         pr_title=pr_title,

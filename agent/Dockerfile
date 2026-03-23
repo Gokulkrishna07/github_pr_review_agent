@@ -4,15 +4,19 @@ RUN groupadd -r app && useradd -r -g app -d /app app
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY agent/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . agent/
+COPY agent/ agent/
+COPY dashboard/ dashboard/
 
 RUN mkdir -p /app/data && chown app:app /app/data
 
+COPY agent/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 USER app
 
-EXPOSE 8000
+EXPOSE 8000 8504
 
-CMD ["uvicorn", "agent.agent:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+ENTRYPOINT ["/app/entrypoint.sh"]

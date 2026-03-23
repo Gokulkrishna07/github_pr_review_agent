@@ -177,6 +177,81 @@ class TestBuildReviewBody:
 
 
 # ---------------------------------------------------------------------------
+# _build_review_body — output style customization tests
+# ---------------------------------------------------------------------------
+
+
+class TestBuildReviewBodyOutputStyle:
+    def _sample_reviews(self):
+        return [
+            (
+                "src/app.py",
+                {
+                    "whats_good": ["Clean code"],
+                    "critical": [{"issue": "SQL injection", "location": "L10"}],
+                    "major": [{"issue": "No error handling", "location": "L20"}],
+                    "minor": [{"issue": "Unclear name", "location": "L30"}],
+                    "nit": [{"issue": "Add docstring", "location": "L40"}],
+                },
+            ),
+        ]
+
+    def test_hide_whats_good(self):
+        style = {"show_whats_good": False}
+        body = _build_review_body(self._sample_reviews(), "PR", "model", output_style=style)
+        assert "What's Good" not in body
+        assert "Clean code" not in body
+
+    def test_filter_severity_categories(self):
+        style = {"severity_categories": ["critical"]}
+        body = _build_review_body(self._sample_reviews(), "PR", "model", output_style=style)
+        assert "Critical" in body
+        assert "Major" not in body
+        assert "Minor" not in body
+        assert "Nit" not in body
+
+    def test_emoji_disabled(self):
+        style = {"emoji": False}
+        body = _build_review_body(self._sample_reviews(), "PR", "model", output_style=style)
+        assert "🔴" not in body
+        assert "🟡" not in body
+        assert "🔵" not in body
+        assert "💡" not in body
+        assert "🤖" not in body
+        assert "Critical" in body
+
+    def test_line_refs_disabled(self):
+        style = {"include_line_refs": False}
+        body = _build_review_body(self._sample_reviews(), "PR", "model", output_style=style)
+        assert "`[src/app.py" not in body
+        assert "SQL injection" in body
+
+    def test_per_file_format(self):
+        reviews = [
+            ("a.py", {**_empty_review(), "critical": [{"issue": "Bug in a", "location": "L1"}]}),
+            ("b.py", {**_empty_review(), "major": [{"issue": "Issue in b", "location": "L2"}]}),
+        ]
+        style = {"format": "per_file"}
+        body = _build_review_body(reviews, "PR", "model", output_style=style)
+        assert "`a.py`" in body
+        assert "`b.py`" in body
+        assert "Bug in a" in body
+        assert "Issue in b" in body
+
+    def test_default_style_matches_original_behavior(self):
+        body_default = _build_review_body(self._sample_reviews(), "PR", "model")
+        body_explicit = _build_review_body(self._sample_reviews(), "PR", "model", output_style=None)
+        assert body_default == body_explicit
+
+    def test_no_issues_with_style(self):
+        reviews = [("a.py", {**_empty_review(), "whats_good": ["Great"]})]
+        style = {"emoji": False}
+        body = _build_review_body(reviews, "PR", "model", output_style=style)
+        assert "This is a solid PR and good to merge" in body
+        assert "✅" not in body
+
+
+# ---------------------------------------------------------------------------
 # Webhook endpoint tests (ASGI integration)
 # ---------------------------------------------------------------------------
 
@@ -413,6 +488,7 @@ class TestProcessReview:
             ),
             patch("agent.agent.get_pr_files", new_callable=AsyncMock, return_value=[{}]),
             patch("agent.agent.parse_pr_files", return_value=[fake_diff]),
+            patch("agent.agent.get_config_for_repo", new_callable=AsyncMock, return_value=None),
             patch("agent.agent.review_diff", new_callable=AsyncMock, return_value=fake_review),
             patch("agent.agent.post_pr_comment", new_callable=AsyncMock) as mock_comment,
             patch("agent.agent.mark_as_reviewed") as mock_mark,
@@ -447,6 +523,7 @@ class TestProcessReview:
             ),
             patch("agent.agent.get_pr_files", new_callable=AsyncMock, return_value=[{}]),
             patch("agent.agent.parse_pr_files", return_value=[fake_diff]),
+            patch("agent.agent.get_config_for_repo", new_callable=AsyncMock, return_value=None),
             patch(
                 "agent.agent.review_diff",
                 new_callable=AsyncMock,
@@ -489,6 +566,7 @@ class TestProcessReview:
             ),
             patch("agent.agent.get_pr_files", new_callable=AsyncMock, return_value=[{}, {}]),
             patch("agent.agent.parse_pr_files", return_value=[diff_a, diff_b]),
+            patch("agent.agent.get_config_for_repo", new_callable=AsyncMock, return_value=None),
             patch("agent.agent.review_diff", new_callable=AsyncMock, side_effect=review_side_effect),
             patch("agent.agent.post_pr_comment", new_callable=AsyncMock) as mock_comment,
             patch("agent.agent.mark_as_reviewed"),

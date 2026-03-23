@@ -8,7 +8,7 @@ from pydantic import BaseModel, ValidationError
 
 from .exceptions import GroqAPIError
 from .metrics import groq_request_duration_seconds, groq_requests_total, llm_tokens_used_total
-from .prompts import build_review_prompt
+from .prompts import build_review_prompt_with_config
 from .types import FileReview
 
 logger = logging.getLogger(__name__)
@@ -41,13 +41,15 @@ async def review_diff(
     model: str,
     timeout: int,
     file_content: str | None = None,
+    custom_template: str | None = None,
 ) -> FileReview:
     """Send a diff to Groq for review, return categorized review dict."""
-    prompt = build_review_prompt(
+    prompt = build_review_prompt_with_config(
         filename, patch,
         pr_title=pr_title,
         pr_description=pr_description,
         file_content=file_content,
+        custom_template=custom_template,
     )
 
     client = AsyncGroq(api_key=api_key, timeout=timeout)

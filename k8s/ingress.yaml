@@ -16,6 +16,27 @@ spec:
                 name: review-agent
                 port:
                   number: 80
+          - path: /auth
+            pathType: Prefix
+            backend:
+              service:
+                name: review-agent
+                port:
+                  number: 80
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: review-agent
+                port:
+                  number: 80
+          - path: /dashboard
+            pathType: Prefix
+            backend:
+              service:
+                name: review-agent
+                port:
+                  number: 8504
           - path: /grafana
             pathType: Prefix
             backend:

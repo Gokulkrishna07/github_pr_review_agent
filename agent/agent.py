@@ -19,6 +19,9 @@ from .idempotency import is_already_reviewed, mark_as_reviewed
 from .types import FileReview
 from .metrics import active_reviews, pr_review_duration_seconds, pr_reviews_total, review_queue_depth
 from .webhook_verify import verify_signature
+from .auth import auth_router
+from .api_routes import api_router
+from .database import get_config_for_repo, init_db
 
 trace_id: contextvars.ContextVar[str] = contextvars.ContextVar("trace_id", default="-")
 
@@ -53,6 +56,7 @@ _active_tasks: set[asyncio.Task] = set()
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    await init_db()
     yield
     # Graceful shutdown: wait for active review tasks to finish
     if _active_tasks:
@@ -65,6 +69,8 @@ async def _lifespan(app: FastAPI):
 
 
 app = FastAPI(title="PR Review Agent", lifespan=_lifespan)
+app.include_router(auth_router)
+app.include_router(api_router)
 
 _ip_request_times: dict[str, list[float]] = {}
 _RATE_LIMIT_MAX_REQUESTS = 60
@@ -189,6 +195,11 @@ async def process_review(
             pr_reviews_total.labels(status="skipped").inc()
             return
 
+        # Fetch per-repo config (prompt template + output style)
+        repo_config = await get_config_for_repo(owner, repo)
+        custom_template = repo_config.get("prompt_template") if repo_config else None
+        output_style = repo_config.get("output_style") if repo_config else None
+
         logger.info("PR #%d: reviewing %d files", pr_number, len(diffs))
 
         async def review_one(diff):
@@ -205,6 +216,7 @@ async def process_review(
                     model=settings.groq_model,
                     timeout=settings.groq_timeout,
                     file_content=file_content,
+                    custom_template=custom_template,
                 )
 
         results = await asyncio.gather(*(review_one(d) for d in diffs), return_exceptions=True)
@@ -224,7 +236,10 @@ async def process_review(
             pr_reviews_total.labels(status="failed").inc()
             return
 
-        body = _build_review_body(file_reviews, pr_details["title"], settings.groq_model)
+        body = _build_review_body(
+            file_reviews, pr_details["title"], settings.groq_model,
+            output_style=output_style,
+        )
         await post_pr_comment(owner, repo, pr_number, body, token)
 
         mark_as_reviewed(owner, repo, pr_number, commit_sha)
@@ -240,63 +255,88 @@ async def process_review(
 
 
 def _build_review_body(
-    file_reviews: list[tuple[str, FileReview]], pr_title: str, model: str
+    file_reviews: list[tuple[str, FileReview]], pr_title: str, model: str,
+    output_style: dict | None = None,
 ) -> str:
+    style = output_style or {}
+    show_whats_good = style.get("show_whats_good", True)
+    visible_severities = set(style.get("severity_categories", ["critical", "major", "minor", "nit"]))
+    use_emoji = style.get("emoji", True)
+    include_line_refs = style.get("include_line_refs", True)
+    fmt = style.get("format", "grouped")
+
+    severity_labels = {
+        "critical": ("🔴 Critical" if use_emoji else "Critical", ""),
+        "major": ("🟡 Major" if use_emoji else "Major", ""),
+        "minor": ("🔵 Minor" if use_emoji else "Minor", ""),
+        "nit": ("💡 Nit" if use_emoji else "Nit", " *(non-blocking)*"),
+    }
+
     all_good: list[str] = []
-    all_critical: list[str] = []
-    all_major: list[str] = []
-    all_minor: list[str] = []
-    all_nit: list[str] = []
+    all_issues: dict[str, list[str]] = {s: [] for s in ("critical", "major", "minor", "nit")}
+    # For per_file format: {filename: {severity: [issues]}}
+    per_file_issues: dict[str, dict[str, list[str]]] = {}
 
     for filename, review in file_reviews:
-        for item in review.get("whats_good", []):
-            if item not in all_good:
-                all_good.append(item)
-        for item in review.get("critical", []):
-            all_critical.append(f"{item['issue']} `[{filename} {item.get('location', '')}]`")
-        for item in review.get("major", []):
-            all_major.append(f"{item['issue']} `[{filename} {item.get('location', '')}]`")
-        for item in review.get("minor", []):
-            all_minor.append(f"{item['issue']} `[{filename} {item.get('location', '')}]`")
-        for item in review.get("nit", []):
-            all_nit.append(f"{item['issue']} `[{filename} {item.get('location', '')}]`")
+        if show_whats_good:
+            for item in review.get("whats_good", []):
+                if item not in all_good:
+                    all_good.append(item)
 
-    lines = ["## Code Review 🤖", "", "---"]
+        for severity in ("critical", "major", "minor", "nit"):
+            if severity not in visible_severities:
+                continue
+            for item in review.get(severity, []):
+                loc = item.get("location", "")
+                if include_line_refs:
+                    issue_text = f"{item['issue']} `[{filename} {loc}]`"
+                else:
+                    issue_text = item["issue"]
 
-    if all_good:
-        lines += ["", "### ✅ What's Good"]
+                all_issues[severity].append(issue_text)
+
+                if fmt == "per_file":
+                    per_file_issues.setdefault(filename, {s: [] for s in ("critical", "major", "minor", "nit")})
+                    per_file_issues[filename][severity].append(issue_text)
+
+    header = "## Code Review 🤖" if use_emoji else "## Code Review"
+    lines = [header, "", "---"]
+
+    if show_whats_good and all_good:
+        good_header = "### ✅ What's Good" if use_emoji else "### What's Good"
+        lines += ["", good_header]
         lines += [f"- {g}" for g in all_good]
 
-    has_issues = any([all_critical, all_major, all_minor, all_nit])
+    has_issues = any(all_issues[s] for s in visible_severities)
 
     if has_issues:
-        lines += ["", "### Issues Found", ""]
-
-        if all_critical:
-            lines += ["**🔴 Critical:**"]
-            for i, issue in enumerate(all_critical, 1):
-                lines.append(f"- issue {i} — {issue}")
-            lines.append("")
-
-        if all_major:
-            lines += ["**🟡 Major:**"]
-            for i, issue in enumerate(all_major, 1):
-                lines.append(f"- issue {i} — {issue}")
-            lines.append("")
-
-        if all_minor:
-            lines += ["**🔵 Minor:**"]
-            for i, issue in enumerate(all_minor, 1):
-                lines.append(f"- issue {i} — {issue}")
-            lines.append("")
-
-        if all_nit:
-            lines += ["**💡 Nit:** *(non-blocking)*"]
-            for i, issue in enumerate(all_nit, 1):
-                lines.append(f"- issue {i} — {issue}")
-            lines.append("")
+        if fmt == "per_file":
+            for filename, sev_map in per_file_issues.items():
+                file_has = any(sev_map[s] for s in visible_severities)
+                if not file_has:
+                    continue
+                lines += ["", f"### `{filename}`", ""]
+                for severity in ("critical", "major", "minor", "nit"):
+                    if severity not in visible_severities or not sev_map[severity]:
+                        continue
+                    label, suffix = severity_labels[severity]
+                    lines += [f"**{label}:**{suffix}"]
+                    for i, issue in enumerate(sev_map[severity], 1):
+                        lines.append(f"- issue {i} — {issue}")
+                    lines.append("")
+        else:
+            lines += ["", "### Issues Found", ""]
+            for severity in ("critical", "major", "minor", "nit"):
+                if severity not in visible_severities or not all_issues[severity]:
+                    continue
+                label, suffix = severity_labels[severity]
+                lines += [f"**{label}:**{suffix}"]
+                for i, issue in enumerate(all_issues[severity], 1):
+                    lines.append(f"- issue {i} — {issue}")
+                lines.append("")
     else:
-        lines += ["", "### ✅ This is a solid PR and good to merge"]
+        no_issues = "### ✅ This is a solid PR and good to merge" if use_emoji else "### This is a solid PR and good to merge"
+        lines += ["", no_issues]
 
     lines += ["", "---", f"*Reviewed by PR Review Bot · powered by Groq {model}*"]
     return "\n".join(lines)
