@@ -44,20 +44,27 @@ jobs:
             cd ~/Code_review_agent
             git pull origin main
 
-            # Build agent image (context is repo root, Dockerfile in agent/)
+            # Build agent image
             docker build -t review-agent:latest -f agent/Dockerfile .
+
+            # Build dashboard image
+            docker build -t review-dashboard:latest -f dashboard/Dockerfile .
 
             # Import into k3s containerd
             docker save review-agent:latest | sudo k3s ctr images import -
+            docker save review-dashboard:latest | sudo k3s ctr images import -
 
             # Apply k8s manifests
             sudo kubectl apply -f k8s/namespace.yaml
             sudo kubectl apply -f k8s/agent-configmap.yaml
             sudo kubectl apply -f k8s/agent-deployment.yaml
+            sudo kubectl apply -f k8s/dashboard-deployment.yaml
             sudo kubectl apply -f k8s/monitoring/prometheus.yaml
             sudo kubectl apply -f k8s/monitoring/grafana.yaml
             sudo kubectl apply -f k8s/ingress.yaml
 
-            # Restart agent to pick up new image
+            # Restart pods to pick up new images
             sudo kubectl rollout restart deployment/review-agent -n ai-reviewer
+            sudo kubectl rollout restart deployment/review-dashboard -n ai-reviewer
             sudo kubectl rollout status deployment/review-agent -n ai-reviewer --timeout=120s
+            sudo kubectl rollout status deployment/review-dashboard -n ai-reviewer --timeout=120s

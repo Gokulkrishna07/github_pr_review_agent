@@ -34,7 +34,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: review-agent
+                name: review-dashboard
                 port:
                   number: 8504
           - path: /grafana

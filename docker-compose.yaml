@@ -5,8 +5,16 @@ services:
       dockerfile: agent/Dockerfile
     ports:
       - "8000:8000"
-      - "8504:8504"
     env_file:
       - .env
 
-volumes: {}
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    ports:
+      - "8504:8504"
+    environment:
+      - API_BASE_URL=http://agent:8000
+    depends_on:
+      - agent
