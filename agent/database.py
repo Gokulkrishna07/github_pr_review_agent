@@ -35,9 +35,16 @@ CREATE TABLE IF NOT EXISTS review_configs (
     active          INTEGER NOT NULL DEFAULT 1,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    llm_provider    TEXT NOT NULL DEFAULT 'groq',
+    llm_model       TEXT,
     UNIQUE(user_id, repo_full_name)
 )
 """
+
+_MIGRATIONS = [
+    "ALTER TABLE review_configs ADD COLUMN llm_provider TEXT NOT NULL DEFAULT 'groq'",
+    "ALTER TABLE review_configs ADD COLUMN llm_model TEXT",
+]
 
 
 def _db_path() -> str:
@@ -63,6 +70,12 @@ async def init_db() -> None:
     try:
         await db.execute(_CREATE_USERS)
         await db.execute(_CREATE_REVIEW_CONFIGS)
+        # Run migrations for existing databases (idempotent)
+        for sql in _MIGRATIONS:
+            try:
+                await db.execute(sql)
+            except Exception:
+                pass  # Column already exists
         await db.commit()
         logger.info("Config database initialized at %s", _db_path())
     finally:
@@ -122,6 +135,8 @@ async def upsert_review_config(
     prompt_template: str | None = None,
     output_style: dict | None = None,
     severity_filter: list[str] | None = None,
+    llm_provider: str = "groq",
+    llm_model: str | None = None,
     active: bool = True,
 ) -> dict:
     if not user_id or not repo_full_name:
@@ -137,16 +152,19 @@ async def upsert_review_config(
     try:
         await db.execute(
             """INSERT INTO review_configs
-                 (user_id, repo_full_name, prompt_template, output_style, severity_filter, active)
-               VALUES (?, ?, ?, ?, ?, ?)
+                 (user_id, repo_full_name, prompt_template, output_style,
+                  severity_filter, llm_provider, llm_model, active)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(user_id, repo_full_name) DO UPDATE SET
                  prompt_template = excluded.prompt_template,
                  output_style = excluded.output_style,
                  severity_filter = excluded.severity_filter,
+                 llm_provider = excluded.llm_provider,
+                 llm_model = excluded.llm_model,
                  active = excluded.active,
                  updated_at = CURRENT_TIMESTAMP""",
             (user_id, repo_full_name, prompt_template, output_style_json,
-             severity_filter_json, int(active)),
+             severity_filter_json, llm_provider, llm_model, int(active)),
         )
         await db.commit()
         cursor = await db.execute(

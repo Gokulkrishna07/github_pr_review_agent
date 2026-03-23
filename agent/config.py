@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     frontend_url: str = ""
     public_base_url: str = ""
     config_db_path: str = "/app/data/config.db"
+    gemini_api_key: str = ""
+    perplexity_api_key: str = ""
 
     @field_validator("github_app_id")
     @classmethod

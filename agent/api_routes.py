@@ -20,6 +20,8 @@ from .models import (
     PreviewRequest,
     ReviewConfigCreate,
 )
+from .config import settings as app_settings
+from .llm import get_available_providers
 from .prompts import REVIEW_TEMPLATE, build_review_prompt_with_config
 
 logger = logging.getLogger(__name__)
@@ -65,6 +67,8 @@ async def put_config(
         prompt_template=body.prompt_template,
         output_style=body.output_style.model_dump(),
         severity_filter=body.severity_filter,
+        llm_provider=body.llm_provider,
+        llm_model=body.llm_model,
         active=body.active,
     )
     return config
@@ -108,6 +112,12 @@ async def preview_prompt(
             status_code=400,
             detail=f"Template rendering failed: {e}",
         )
+
+
+@api_router.get("/providers")
+async def list_providers(user: dict = Depends(get_current_user)):
+    """Return available LLM providers and their models."""
+    return get_available_providers(app_settings)
 
 
 @api_router.get("/repos")

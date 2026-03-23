@@ -20,7 +20,11 @@ class GitHubRateLimitError(GitHubAPIError):
         super().__init__(status_code=429, message=message)
 
 
-class GroqAPIError(AgentError):
+class LLMAPIError(AgentError):
+    """Raised when any LLM API call fails."""
+
+
+class GroqAPIError(LLMAPIError):
     """Raised when the Groq LLM API call fails."""
 
 

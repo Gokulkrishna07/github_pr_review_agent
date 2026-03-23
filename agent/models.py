@@ -30,6 +30,8 @@ class ReviewConfigCreate(BaseModel):
     severity_filter: list[str] = Field(
         default=["critical", "major", "minor", "nit"]
     )
+    llm_provider: str = "groq"
+    llm_model: str | None = None
     active: bool = True
 
 

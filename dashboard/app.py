@@ -216,6 +216,56 @@ def config_page(user: dict):
 
     st.markdown("---")
 
+    # --- LLM Provider & Model ---
+    st.subheader("LLM Provider & Model")
+    st.caption("Choose which AI provider and model to use for code reviews.")
+
+    providers_resp = _api_get("/api/providers")
+    providers = providers_resp.json() if providers_resp.status_code == 200 else []
+
+    # Fallback if no providers configured
+    if not providers:
+        providers = [{"name": "groq", "display_name": "Groq", "models": ["llama-3.3-70b-versatile"], "default_model": "llama-3.3-70b-versatile"}]
+
+    provider_names = [p["name"] for p in providers]
+    provider_display = {p["name"]: p["display_name"] for p in providers}
+
+    current_provider = (
+        existing.get("llm_provider", "groq") if existing else "groq"
+    )
+    if current_provider not in provider_names:
+        current_provider = provider_names[0]
+
+    col_p1, col_p2 = st.columns(2)
+    with col_p1:
+        selected_provider = st.selectbox(
+            "Provider",
+            options=provider_names,
+            format_func=lambda x: provider_display.get(x, x),
+            index=provider_names.index(current_provider),
+        )
+
+    # Get models for selected provider
+    provider_info = next((p for p in providers if p["name"] == selected_provider), providers[0])
+    available_models = provider_info["models"]
+    default_model = provider_info["default_model"]
+
+    current_model = (
+        existing.get("llm_model") if existing and existing.get("llm_model")
+        else default_model
+    )
+    if current_model not in available_models:
+        current_model = default_model
+
+    with col_p2:
+        selected_model = st.selectbox(
+            "Model",
+            options=available_models,
+            index=available_models.index(current_model),
+        )
+
+    st.markdown("---")
+
     # --- Output Style ---
     st.subheader("Output Style")
 
@@ -289,6 +339,8 @@ def config_page(user: dict):
                     "severity_categories": selected_severities,
                 },
                 "severity_filter": selected_severities,
+                "llm_provider": selected_provider,
+                "llm_model": selected_model,
                 "active": True,
             }
             save_resp = _api_put(f"/api/config/{repo}", json=config_data)

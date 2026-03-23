@@ -11,10 +11,10 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from .config import settings
 from .diff_parser import parse_pr_files
-from .exceptions import AgentError, GroqAPIError
+from .exceptions import AgentError, GroqAPIError, LLMAPIError
 from .github_app import get_installation_token
 from .github_client import get_file_content, get_pr_details, get_pr_files, post_pr_comment
-from .groq_client import review_diff
+from .llm import get_provider_api_key, review_diff
 from .idempotency import is_already_reviewed, mark_as_reviewed
 from .types import FileReview
 from .metrics import active_reviews, pr_review_duration_seconds, pr_reviews_total, review_queue_depth
@@ -199,8 +199,21 @@ async def process_review(
         repo_config = await get_config_for_repo(owner, repo)
         custom_template = repo_config.get("prompt_template") if repo_config else None
         output_style = repo_config.get("output_style") if repo_config else None
+        provider_name = repo_config.get("llm_provider", "groq") if repo_config else "groq"
+        llm_model = repo_config.get("llm_model") if repo_config else None
 
-        logger.info("PR #%d: reviewing %d files", pr_number, len(diffs))
+        # Resolve provider API key and model
+        try:
+            api_key = get_provider_api_key(provider_name, settings)
+        except ValueError:
+            logger.warning("Provider %s not configured, falling back to groq", provider_name)
+            provider_name = "groq"
+            api_key = settings.groq_api_key
+
+        from .llm.registry import PROVIDERS
+        model = llm_model or PROVIDERS[provider_name].default_model
+
+        logger.info("PR #%d: reviewing %d files with %s/%s", pr_number, len(diffs), provider_name, model)
 
         _per_file_timeout = settings.groq_timeout * 2  # generous per-file budget
 
@@ -214,11 +227,12 @@ async def process_review(
                     diff.patch,
                     pr_title=pr_details["title"],
                     pr_description=pr_details["description"],
-                    api_key=settings.groq_api_key,
-                    model=settings.groq_model,
+                    api_key=api_key,
+                    model=model,
                     timeout=settings.groq_timeout,
                     file_content=file_content,
                     custom_template=custom_template,
+                    provider_name=provider_name,
                 )
 
         results = await asyncio.gather(
@@ -230,7 +244,7 @@ async def process_review(
         for i, result in enumerate(results):
             if isinstance(result, asyncio.TimeoutError):
                 logger.error("File review timed out after %ds: %s", _per_file_timeout, diffs[i].filename)
-            elif isinstance(result, GroqAPIError):
+            elif isinstance(result, (GroqAPIError, LLMAPIError)):
                 logger.error("LLM review failed for a file: %s", result)
             elif isinstance(result, AgentError):
                 logger.error("Agent error during file review: %s", result)
@@ -243,8 +257,9 @@ async def process_review(
             pr_reviews_total.labels(status="failed").inc()
             return
 
+        provider_display = f"{PROVIDERS[provider_name].display_name} {model}"
         body = _build_review_body(
-            file_reviews, pr_details["title"], settings.groq_model,
+            file_reviews, pr_details["title"], provider_display,
             output_style=output_style,
         )
         await post_pr_comment(owner, repo, pr_number, body, token)
