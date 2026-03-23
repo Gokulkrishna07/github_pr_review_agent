@@ -73,9 +73,9 @@ async def github_login(request: Request):
         "scope": _OAUTH_SCOPES,
         "state": state,
     }
-    redirect_uri = settings.frontend_url
+    redirect_uri = settings.public_base_url
     if redirect_uri:
-        params["redirect_uri"] = f"{redirect_uri}/auth/callback"
+        params["redirect_uri"] = f"{redirect_uri.rstrip('/')}/auth/callback"
 
     url = f"{_GITHUB_AUTHORIZE_URL}?{'&'.join(f'{k}={v}' for k, v in params.items())}"
     response = RedirectResponse(url=url)

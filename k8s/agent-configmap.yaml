@@ -11,3 +11,4 @@ data:
   IDEMPOTENCY_DB_PATH: "/app/data/reviews.db"
   CONFIG_DB_PATH: "/app/data/config.db"
   FRONTEND_URL: ""
+  PUBLIC_BASE_URL: ""

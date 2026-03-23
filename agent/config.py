@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     github_oauth_client_secret: str = ""
     session_secret_key: str = "change-me-in-production"
     frontend_url: str = ""
+    public_base_url: str = ""
     config_db_path: str = "/app/data/config.db"
 
     @field_validator("github_app_id")
