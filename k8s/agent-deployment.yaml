@@ -28,6 +28,7 @@ spec:
           imagePullPolicy: Never
           ports:
             - containerPort: 8000
+            - containerPort: 8504
           envFrom:
             - configMapRef:
                 name: agent-config
@@ -68,5 +69,9 @@ spec:
   selector:
     app: review-agent
   ports:
-    - port: 80
+    - name: api
+      port: 80
       targetPort: 8000
+    - name: dashboard
+      port: 8504
+      targetPort: 8504

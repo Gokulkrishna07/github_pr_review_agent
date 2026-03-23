@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     max_diff_lines: int = 500
     idempotency_db_path: str = "/app/data/reviews.db"
+    github_oauth_client_id: str = ""
+    github_oauth_client_secret: str = ""
+    session_secret_key: str = "change-me-in-production"
+    frontend_url: str = ""
+    config_db_path: str = "/app/data/config.db"
 
     @field_validator("github_app_id")
     @classmethod

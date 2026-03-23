@@ -1,8 +1,11 @@
 services:
   agent:
-    build: ./agent
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
     ports:
       - "8000:8000"
+      - "8504:8504"
     env_file:
       - .env
 

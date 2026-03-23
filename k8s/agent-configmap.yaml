@@ -9,3 +9,5 @@ data:
   MAX_DIFF_LINES: "500"
   GROQ_TIMEOUT: "60"
   IDEMPOTENCY_DB_PATH: "/app/data/reviews.db"
+  CONFIG_DB_PATH: "/app/data/config.db"
+  FRONTEND_URL: ""
