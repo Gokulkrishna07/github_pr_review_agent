@@ -173,7 +173,7 @@ async def process_review(
     trace_id.set(delivery_id)
     review_queue_depth.dec()
 
-    if is_already_reviewed(owner, repo, pr_number, commit_sha):
+    if await is_already_reviewed(owner, repo, pr_number, commit_sha):
         logger.info("PR #%d (%s) already reviewed, skipping", pr_number, commit_sha[:7])
         pr_reviews_total.labels(status="duplicate").inc()
         return
@@ -202,6 +202,8 @@ async def process_review(
 
         logger.info("PR #%d: reviewing %d files", pr_number, len(diffs))
 
+        _per_file_timeout = settings.groq_timeout * 2  # generous per-file budget
+
         async def review_one(diff):
             async with _semaphore:
                 file_content = await get_file_content(
@@ -219,11 +221,16 @@ async def process_review(
                     custom_template=custom_template,
                 )
 
-        results = await asyncio.gather(*(review_one(d) for d in diffs), return_exceptions=True)
+        results = await asyncio.gather(
+            *(asyncio.wait_for(review_one(d), timeout=_per_file_timeout) for d in diffs),
+            return_exceptions=True,
+        )
 
         file_reviews = []
-        for result in results:
-            if isinstance(result, GroqAPIError):
+        for i, result in enumerate(results):
+            if isinstance(result, asyncio.TimeoutError):
+                logger.error("File review timed out after %ds: %s", _per_file_timeout, diffs[i].filename)
+            elif isinstance(result, GroqAPIError):
                 logger.error("LLM review failed for a file: %s", result)
             elif isinstance(result, AgentError):
                 logger.error("Agent error during file review: %s", result)
@@ -242,7 +249,7 @@ async def process_review(
         )
         await post_pr_comment(owner, repo, pr_number, body, token)
 
-        mark_as_reviewed(owner, repo, pr_number, commit_sha)
+        await mark_as_reviewed(owner, repo, pr_number, commit_sha)
         pr_reviews_total.labels(status="success").inc()
         logger.info("PR #%d: review complete", pr_number)
 

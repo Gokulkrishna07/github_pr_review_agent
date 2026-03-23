@@ -85,6 +85,15 @@ async def preview_prompt(
     user: dict = Depends(get_current_user),
 ):
     """Render a prompt template with sample inputs for preview."""
+    from .prompts import REQUIRED_PLACEHOLDERS, _validate_custom_template
+
+    if body.prompt_template and not _validate_custom_template(body.prompt_template):
+        missing = [p for p in REQUIRED_PLACEHOLDERS if p not in body.prompt_template]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Template missing required placeholders: {', '.join(sorted(missing))}",
+        )
+
     try:
         rendered = build_review_prompt_with_config(
             body.filename,
@@ -94,7 +103,7 @@ async def preview_prompt(
             custom_template=body.prompt_template,
         )
         return {"rendered_prompt": rendered}
-    except (KeyError, IndexError) as e:
+    except (KeyError, IndexError, ValueError) as e:
         raise HTTPException(
             status_code=400,
             detail=f"Template rendering failed: {e}",
@@ -109,35 +118,47 @@ async def list_repos(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=401, detail="No GitHub token available")
 
     repos = []
-    async with httpx.AsyncClient(timeout=30) as client:
-        page = 1
-        while True:
-            resp = await client.get(
-                "https://api.github.com/user/repos",
-                headers={
-                    "Authorization": f"Bearer {db_user['access_token']}",
-                    "Accept": "application/vnd.github+json",
-                },
-                params={"per_page": 100, "page": page, "sort": "updated"},
-            )
-            if resp.status_code != 200:
-                raise HTTPException(status_code=502, detail="Failed to fetch repos")
-            page_data = resp.json()
-            if not page_data:
-                break
-            repos.extend(
-                {
-                    "full_name": r["full_name"],
-                    "name": r["name"],
-                    "owner": r["owner"]["login"],
-                    "private": r["private"],
-                    "description": r.get("description") or "",
-                    "language": r.get("language") or "",
-                }
-                for r in page_data
-            )
-            if len(page_data) < 100:
-                break
-            page += 1
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            page = 1
+            while True:
+                resp = await client.get(
+                    "https://api.github.com/user/repos",
+                    headers={
+                        "Authorization": f"Bearer {db_user['access_token']}",
+                        "Accept": "application/vnd.github+json",
+                    },
+                    params={"per_page": 100, "page": page, "sort": "updated"},
+                )
+                if resp.status_code == 401:
+                    raise HTTPException(
+                        status_code=401,
+                        detail="GitHub token expired or revoked, please re-authenticate",
+                    )
+                if resp.status_code != 200:
+                    logger.warning(
+                        "GitHub repos API returned %d on page %d", resp.status_code, page
+                    )
+                    raise HTTPException(status_code=502, detail="Failed to fetch repos from GitHub")
+                page_data = resp.json()
+                if not page_data:
+                    break
+                repos.extend(
+                    {
+                        "full_name": r["full_name"],
+                        "name": r["name"],
+                        "owner": r["owner"]["login"],
+                        "private": r["private"],
+                        "description": r.get("description") or "",
+                        "language": r.get("language") or "",
+                    }
+                    for r in page_data
+                )
+                if len(page_data) < 100:
+                    break
+                page += 1
+    except httpx.HTTPError as e:
+        logger.error("HTTP error fetching repos: %s", e)
+        raise HTTPException(status_code=502, detail="Failed to connect to GitHub API")
 
     return repos

@@ -222,4 +222,5 @@ class TestListRepos:
         mock_http.get = AsyncMock(return_value=mock_resp)
 
         resp = await client.get("/api/repos", cookies=auth_cookies)
-        assert resp.status_code == 502
+        assert resp.status_code == 401
+        assert "expired or revoked" in resp.json()["detail"]

@@ -115,10 +115,20 @@ def build_review_prompt_with_config(
             "Required: %s", REQUIRED_PLACEHOLDERS
         )
 
-    return template.format(
-        filename=filename,
-        patch=patch,
-        pr_title=pr_title,
-        pr_description=description_section,
-        file_content_section=file_content_section,
-    )
+    try:
+        return template.format(
+            filename=filename,
+            patch=patch,
+            pr_title=pr_title,
+            pr_description=description_section,
+            file_content_section=file_content_section,
+        )
+    except (KeyError, IndexError, ValueError) as e:
+        logger.error("Failed to render template, falling back to default: %s", e)
+        return REVIEW_TEMPLATE.format(
+            filename=filename,
+            patch=patch,
+            pr_title=pr_title,
+            pr_description=description_section,
+            file_content_section=file_content_section,
+        )

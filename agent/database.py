@@ -49,8 +49,12 @@ async def _get_db() -> aiosqlite.Connection:
     if path != ":memory:":
         os.makedirs(os.path.dirname(path), exist_ok=True)
     db = await aiosqlite.connect(path)
-    db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA journal_mode=WAL")
+    try:
+        db.row_factory = aiosqlite.Row
+        await db.execute("PRAGMA journal_mode=WAL")
+    except Exception:
+        await db.close()
+        raise
     return db
 
 
@@ -120,6 +124,11 @@ async def upsert_review_config(
     severity_filter: list[str] | None = None,
     active: bool = True,
 ) -> dict:
+    if not user_id or not repo_full_name:
+        raise ValueError("user_id and repo_full_name are required")
+    if not isinstance(user_id, int) or user_id <= 0:
+        raise ValueError("user_id must be a positive integer")
+
     output_style_json = json.dumps(output_style or {})
     severity_filter_json = json.dumps(
         severity_filter or ["critical", "major", "minor", "nit"]
